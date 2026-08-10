@@ -32,6 +32,10 @@ public class QueryExecutor {
         public ExecutionPlan getExecutionPlan() { return executionPlan; }
         public double getExecutionTimeMs() { return executionTimeNs / 1_000_000.0; }
         public String getMessage() { return message; }
+        public List<String> getColumns() {
+            if (rows == null || rows.isEmpty()) return Collections.emptyList();
+            return new ArrayList<>(rows.get(0).keySet());
+        }
     }
 
     public QueryExecutor(StorageEngine storageEngine, AIEngine aiEngine) {

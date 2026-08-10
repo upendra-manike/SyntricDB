@@ -3,6 +3,7 @@ package com.syntricdb.ai;
 import com.syntricdb.engine.StorageEngine;
 import com.syntricdb.engine.schema.Tuple;
 import com.syntricdb.engine.vector.HNSWIndex;
+import com.syntricdb.engine.fulltext.InvertedIndex;
 
 import java.util.*;
 
@@ -38,32 +39,66 @@ public class RAGEngine {
     }
 
     public RAGResult query(String tableName, String vectorColumn, String prompt, int topK) throws Exception {
+        return hybridQuery(tableName, vectorColumn, null, prompt, topK);
+    }
+
+    public RAGResult hybridQuery(String tableName, String vectorColumn, String textColumn, String prompt, int topK) throws Exception {
         long start = System.nanoTime();
         HNSWIndex hnsw = storageEngine.getVectorIndex(tableName, vectorColumn);
+        InvertedIndex invertedIndex = storageEngine.getInvertedIndex(tableName);
+
+        Map<String, Double> rrfScores = new HashMap<>();
+        int kConstant = 60; // Standard RRF smoothing constant
+
+        // 1. Vector Search RRF Scoring
+        if (hnsw != null) {
+            float[] queryVec = aiEngine.aiEmbed(prompt, hnsw.getDimension());
+            List<HNSWIndex.VectorSearchResult> searchResults = hnsw.search(queryVec, topK * 2);
+
+            for (int rank = 0; rank < searchResults.size(); rank++) {
+                String id = searchResults.get(rank).getId();
+                double score = 1.0 / (kConstant + (rank + 1));
+                rrfScores.put(id, rrfScores.getOrDefault(id, 0.0) + score);
+            }
+        }
+
+        // 2. Full-Text Search RRF Scoring
+        if (invertedIndex != null) {
+            List<InvertedIndex.SearchResult> textResults = invertedIndex.search(prompt, topK * 2);
+            for (int rank = 0; rank < textResults.size(); rank++) {
+                String id = textResults.get(rank).getDocId();
+                double score = 1.0 / (kConstant + (rank + 1));
+                rrfScores.put(id, rrfScores.getOrDefault(id, 0.0) + score);
+            }
+        }
+
+        // 3. Sort by RRF combined score
+        List<Map.Entry<String, Double>> sortedDocs = new ArrayList<>(rrfScores.entrySet());
+        sortedDocs.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
 
         List<Map<String, Object>> retrieved = new ArrayList<>();
         StringBuilder contextText = new StringBuilder();
 
-        if (hnsw != null) {
-            float[] queryVec = aiEngine.aiEmbed(prompt, hnsw.getDimension());
-            List<HNSWIndex.VectorSearchResult> searchResults = hnsw.search(queryVec, topK);
+        for (int i = 0; i < Math.min(topK, sortedDocs.size()); i++) {
+            String id = sortedDocs.get(i).getKey();
+            double score = sortedDocs.get(i).getValue();
+            Tuple tuple = storageEngine.getByPrimaryKey(tableName, id);
 
-            for (HNSWIndex.VectorSearchResult res : searchResults) {
-                Tuple tuple = storageEngine.getByPrimaryKey(tableName, res.getId());
-                if (tuple != null) {
-                    Map<String, Object> item = new LinkedHashMap<>(tuple.asMap());
-                    item.put("_similarity", res.getSimilarity());
-                    retrieved.add(item);
+            if (tuple != null) {
+                Map<String, Object> item = new LinkedHashMap<>(tuple.asMap());
+                item.put("_rrfScore", score);
+                retrieved.add(item);
 
-                    if (tuple.get("bio") != null) {
-                        contextText.append("- ").append(tuple.getString("name")).append(" (").append(tuple.getString("role")).append("): ").append(tuple.getString("bio")).append("\n");
-                    }
+                if (tuple.get("bio") != null) {
+                    contextText.append("- ").append(tuple.getString("name"))
+                               .append(" (").append(tuple.getString("role")).append("): ")
+                               .append(tuple.getString("bio")).append("\n");
                 }
             }
         }
 
         String augmentedPrompt = "Context retrieved from SyntricDB:\n" + contextText + "\nUser Question: " + prompt;
-        String generatedAnswer = "Based on SyntricDB vector context: Found " + retrieved.size() + " highly relevant profile matches. Key specialist: " + (retrieved.isEmpty() ? "None" : retrieved.get(0).get("name"));
+        String generatedAnswer = "Based on SyntricDB hybrid vector context: Found " + retrieved.size() + " matches. Top match: " + (retrieved.isEmpty() ? "None" : retrieved.get(0).get("name"));
 
         long elapsed = System.nanoTime() - start;
         return new RAGResult(prompt, retrieved, augmentedPrompt, generatedAnswer, elapsed / 1_000_000.0);

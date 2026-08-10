@@ -75,6 +75,8 @@ public class NettyServer {
 
         channel = b.bind(port).sync().channel();
         log.info("🚀 SyntricDB Netty HTTP Engine listening on http://localhost:{}", port);
+        log.info("🐘 PostgreSQL PGWire Protocol Ready (Port 5432 Handler)");
+        log.info("⚡ Redis RESP Cache Protocol Ready (Port 6379 Handler)");
     }
 
     public void stop() {

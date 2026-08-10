@@ -1,5 +1,6 @@
-package com.syntricdb.engine;
+package com.syntricdb;
 
+import com.syntricdb.engine.StorageEngine;
 import com.syntricdb.engine.schema.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

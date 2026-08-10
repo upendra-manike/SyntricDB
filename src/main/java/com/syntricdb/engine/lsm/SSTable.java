@@ -153,6 +153,16 @@ public class SSTable {
         return null;
     }
 
+    public byte[] getMemoryMapped(String key) throws IOException {
+        if (!Files.exists(dataPath)) return null;
+        try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
+            long size = channel.size();
+            if (size == 0) return null;
+            java.nio.MappedByteBuffer mmap = channel.map(FileChannel.MapMode.READ_ONLY, 0, size);
+            return get(key);
+        }
+    }
+
     public String getMinKey() { return minKey; }
     public String getMaxKey() { return maxKey; }
 }

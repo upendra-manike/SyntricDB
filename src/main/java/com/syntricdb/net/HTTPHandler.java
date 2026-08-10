@@ -273,6 +273,23 @@ public class HTTPHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
                 responseMap.put("retrievalTimeMs", ragRes.getRetrievalTimeMs());
                 responseMap.put("context", ragRes.getRetrievedContext());
 
+            } else if ("/api/vector/projection".equals(uri) && req.method() == HttpMethod.GET) {
+                String targetDb = queryExecutor.getActiveDatabase();
+                HNSWIndex hnsw = storageEngine.getVectorIndex(targetDb, "users", "embedding");
+                List<Map<String, Object>> projections = new ArrayList<>();
+
+                if (hnsw != null) {
+                    Map<String, float[]> vecs = hnsw.getVectors();
+                    for (Map.Entry<String, float[]> entry : vecs.entrySet()) {
+                        float[] v = entry.getValue();
+                        double x = v.length > 0 ? v[0] * 100 : 0;
+                        double y = v.length > 1 ? v[1] * 100 : 0;
+                        projections.add(Map.of("id", entry.getKey(), "x", x, "y", y, "dim", v.length));
+                    }
+                }
+                responseMap.put("success", true);
+                responseMap.put("projections", projections);
+
             } else if ("/api/cluster".equals(uri) && req.method() == HttpMethod.GET) {
                 responseMap.put("success", true);
                 List<Map<String, Object>> nodeList = new ArrayList<>();

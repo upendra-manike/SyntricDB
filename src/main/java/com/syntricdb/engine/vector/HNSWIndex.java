@@ -253,6 +253,10 @@ public class HNSWIndex {
         }
     }
 
+    public Map<String, float[]> getVectors() { return Collections.unmodifiableMap(vectors); }
+    public DistanceMetric getMetric() { return metric; }
+
+
     public synchronized void saveToFile(java.nio.file.Path file) throws java.io.IOException {
         if (file.getParent() != null) {
             java.nio.file.Files.createDirectories(file.getParent());
