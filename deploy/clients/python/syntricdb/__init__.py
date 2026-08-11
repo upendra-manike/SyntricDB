@@ -1,4 +1,5 @@
-from .client import SyntricDBClient
+from syntricdb.client import SyntricDBClient
+from syntricdb.langchain import SyntricDBVectorStore
+from syntricdb.llamaindex import SyntricDBLlamaIndexVectorStore
 
-__version__ = "1.0.0"
-__all__ = ["SyntricDBClient"]
+__all__ = ["SyntricDBClient", "SyntricDBVectorStore", "SyntricDBLlamaIndexVectorStore"]
