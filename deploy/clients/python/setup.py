@@ -7,7 +7,7 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Upendra Manike",
-    author_email="upendra@syntricdb.io",
+    author_email="upendra@syntricdb.com",
     url="https://github.com/upendra-manike/SyntricDB",
     packages=find_packages(),
     install_requires=[
