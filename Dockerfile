@@ -27,7 +27,7 @@ LABEL org.opencontainers.image.title="SyntricDB" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Install curl/wget for healthchecks and runtime diagnostic utilities
-RUN apk add --no-libc-validations --no-cache curl wget bash
+RUN apk add --no-cache curl wget bash
 
 # Create non-root system user & group
 RUN addgroup -S syntricdb && adduser -S syntricdb -G syntricdb
@@ -44,9 +44,6 @@ COPY --from=builder --chown=syntricdb:syntricdb /app/deploy/syntricdb.conf /etc/
 # Environment Defaults for Container Runtime
 ENV SYNTRICDB_BIND_ADDRESS="0.0.0.0" \
     SYNTRICDB_PORT="8080" \
-    SYNTRICDB_AUTH_ENABLED="true" \
-    SYNTRICDB_ADMIN_USER="admin" \
-    SYNTRICDB_ADMIN_PASSWORD="syntricdb_secret_pass" \
     SYNTRICDB_DATA_DIR="/var/lib/syntricdb/data"
 
 # Expose HTTP REST, HNSW Vector & Web Dashboard Port
