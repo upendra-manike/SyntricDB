@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./syntricdb_logo.png" alt="SyntricDB Logo" width="360" />
+</p>
+
 # ⚡ SyntricDB: Next-Generation AI-Native Unified Database Engine
 
 [![Build Status](https://github.com/upendra-manike/SyntricDB/workflows/SyntricDB%20CI%20Workflow/badge.svg)](https://github.com/upendra-manike/SyntricDB/actions)
