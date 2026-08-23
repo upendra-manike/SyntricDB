@@ -47,9 +47,39 @@ Open PowerShell as Administrator:
 powershell -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1 | iex"
 ```
 
-### 🐧 AWS EC2 / Production Linux VM
+### 🐳 Docker One-Liner (Cloud & Container Quickstart)
 ```bash
-curl -fsSL https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/aws_ec2_install.sh | bash
+docker run -d -p 8080:8080 --name syntricdb ghcr.io/upendra-manike/syntricdb:latest
+```
+
+### 🐙 Docker Compose (Single-Node & 3-Node Raft Cluster)
+```bash
+# Single Node Production Deployment
+docker-compose up -d
+
+# 3-Node Distributed Raft Consensus Cluster
+docker-compose -f docker-compose.cluster.yml up -d
+```
+
+### ☸️ Kubernetes & Helm Deployment
+```bash
+# Helm Chart Deploy
+helm install syntricdb ./deploy/helm/syntricdb
+
+# Standard Kubernetes Manifest Deploy
+kubectl apply -f deploy/k8s/
+```
+
+### 🐧 AWS EC2 / Universal Cloud VM One-Click Deploy
+```bash
+curl -fsSL https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/cloud/deploy_cloud_docker.sh | bash
+```
+
+### 🏷️ GitHub Release Version Bumping
+```bash
+# Bump version, tag release v1.1.0 and push to trigger automated GitHub Release & GHCR build pipeline
+./deploy/bump_version.sh 1.1.0
+git push origin main --tags
 ```
 
 ---

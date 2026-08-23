@@ -1,0 +1,15 @@
+apiVersion: v2
+name: syntricdb
+description: Official Helm Chart for SyntricDB AI-Native Database Engine
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - database
+  - vector-search
+  - ai-native
+  - sql
+  - syntricdb
+maintainers:
+  - name: Upendra Kumar
+    email: upendra@syntricdb.com

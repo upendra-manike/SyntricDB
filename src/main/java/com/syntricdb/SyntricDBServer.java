@@ -117,9 +117,10 @@ public class SyntricDBServer {
 
     public static void main(String[] args) {
         try {
-            int port = 8080;
+            SyntricConfig config = new SyntricConfig();
+            int port = config.getPort();
             boolean cli = args.length > 0 && "--cli".equalsIgnoreCase(args[0]);
-            Path dataDir = Paths.get(System.getProperty("user.home"), ".syntricdb");
+            Path dataDir = Paths.get(config.getDataDir());
 
             SyntricDBServer server = new SyntricDBServer(port, dataDir);
             server.start(cli);

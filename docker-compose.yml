@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  syntricdb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: syntricdb:latest
+    container_name: syntricdb-node-primary
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SYNTRICDB_BIND_ADDRESS=0.0.0.0
+      - SYNTRICDB_PORT=8080
+      - SYNTRICDB_AUTH_ENABLED=true
+      - SYNTRICDB_ADMIN_USER=admin
+      - SYNTRICDB_ADMIN_PASSWORD=syntricdb_secret_pass
+      - SYNTRICDB_DATA_DIR=/var/lib/syntricdb/data
+    volumes:
+      - syntricdb_data:/var/lib/syntricdb
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/api/sql || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  syntricdb_data:
+    driver: local

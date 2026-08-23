@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  syntricdb-node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: syntricdb:latest
+    container_name: syntricdb-node1
+    hostname: syntricdb-node1
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SYNTRICDB_BIND_ADDRESS=0.0.0.0
+      - SYNTRICDB_PORT=8080
+      - SYNTRICDB_ADMIN_USER=admin
+      - SYNTRICDB_ADMIN_PASSWORD=syntricdb_secret_pass
+      - SYNTRICDB_CLUSTER_SEEDS=syntricdb-node1:8080,syntricdb-node2:8080,syntricdb-node3:8080
+      - SYNTRICDB_DATA_DIR=/var/lib/syntricdb/data
+    volumes:
+      - syntricdb_node1_data:/var/lib/syntricdb
+    networks:
+      - syntricdb_cluster_net
+
+  syntricdb-node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: syntricdb:latest
+    container_name: syntricdb-node2
+    hostname: syntricdb-node2
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      - SYNTRICDB_BIND_ADDRESS=0.0.0.0
+      - SYNTRICDB_PORT=8080
+      - SYNTRICDB_ADMIN_USER=admin
+      - SYNTRICDB_ADMIN_PASSWORD=syntricdb_secret_pass
+      - SYNTRICDB_CLUSTER_SEEDS=syntricdb-node1:8080,syntricdb-node2:8080,syntricdb-node3:8080
+      - SYNTRICDB_DATA_DIR=/var/lib/syntricdb/data
+    volumes:
+      - syntricdb_node2_data:/var/lib/syntricdb
+    networks:
+      - syntricdb_cluster_net
+
+  syntricdb-node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: syntricdb:latest
+    container_name: syntricdb-node3
+    hostname: syntricdb-node3
+    restart: unless-stopped
+    ports:
+      - "8082:8080"
+    environment:
+      - SYNTRICDB_BIND_ADDRESS=0.0.0.0
+      - SYNTRICDB_PORT=8080
+      - SYNTRICDB_ADMIN_USER=admin
+      - SYNTRICDB_ADMIN_PASSWORD=syntricdb_secret_pass
+      - SYNTRICDB_CLUSTER_SEEDS=syntricdb-node1:8080,syntricdb-node2:8080,syntricdb-node3:8080
+      - SYNTRICDB_DATA_DIR=/var/lib/syntricdb/data
+    volumes:
+      - syntricdb_node3_data:/var/lib/syntricdb
+    networks:
+      - syntricdb_cluster_net
+
+volumes:
+  syntricdb_node1_data:
+  syntricdb_node2_data:
+  syntricdb_node3_data:
+
+networks:
+  syntricdb_cluster_net:
+    driver: bridge

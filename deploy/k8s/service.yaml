@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: syntricdb-service
+  namespace: syntricdb
+  labels:
+    app.kubernetes.io/name: syntricdb
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http-api
+  selector:
+    app: syntricdb

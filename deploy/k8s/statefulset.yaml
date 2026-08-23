@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: syntricdb
+  namespace: syntricdb
+  labels:
+    app.kubernetes.io/name: syntricdb
+spec:
+  serviceName: "syntricdb-service"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: syntricdb
+  template:
+    metadata:
+      labels:
+        app: syntricdb
+    spec:
+      containers:
+        - name: syntricdb-engine
+          image: ghcr.io/upendra-manike/syntricdb:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http-api
+          envFrom:
+            - configMapRef:
+                name: syntricdb-config
+            - secretRef:
+                name: syntricdb-secret
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          volumeMounts:
+            - name: syntricdb-storage
+              mountPath: /var/lib/syntricdb
+          livenessProbe:
+            httpGet:
+              path: /api/sql
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /api/sql
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: syntricdb-storage
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: 20Gi

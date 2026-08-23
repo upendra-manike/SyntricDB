@@ -341,3 +341,95 @@ curl -X POST "http://localhost:8080/api/sql" \
   -H "Content-Type: application/json" \
   -d '{"sql": "SELECT id, log_level, message FROM curl_logs WHERE log_level=\"ERROR\" AND embedding SIMILAR TO \"memory allocation failure\" TOP 1;"}'
 ```
+
+---
+
+## ☁️ Cloud Database Architecture & Container Orchestration
+
+SyntricDB can be deployed as a cloud-native database engine across any cloud provider (AWS, GCP, Azure, DigitalOcean, Hetzner, or Kubernetes clusters).
+
+### 🐳 Docker & Multi-Node Container Orchestration
+
+#### 1. Single Node Docker Run
+```bash
+docker run -d \
+  --name syntricdb-cloud \
+  -p 8080:8080 \
+  -e SYNTRICDB_ADMIN_USER=admin \
+  -e SYNTRICDB_ADMIN_PASSWORD=syntricdb_secret_pass \
+  -v syntricdb_data:/var/lib/syntricdb \
+  ghcr.io/upendra-manike/syntricdb:latest
+```
+
+#### 2. 3-Node Raft Consensus Distributed Cluster (Docker Compose)
+SyntricDB supports distributed leader election and consensus via built-in Raft protocol:
+```bash
+docker-compose -f docker-compose.cluster.yml up -d
+```
+
+### ☸️ Kubernetes & Helm Deployment
+
+#### 1. Kubernetes StatefulSet
+SyntricDB provides production Kubernetes StatefulSet manifests with PersistentVolumeClaims (PVC):
+```bash
+# Create syntricdb namespace and deploy all resources
+kubectl apply -f deploy/k8s/
+```
+
+#### 2. Official Helm Chart
+```bash
+# Install SyntricDB via Helm
+helm install syntricdb ./deploy/helm/syntricdb
+
+# Customize credentials and storage size
+helm install syntricdb ./deploy/helm/syntricdb \
+  --set config.adminPassword="YourSecurePassword123!" \
+  --set persistence.size=100Gi
+```
+
+### 🏗️ Terraform AWS Infrastructure Provisioning
+Provision an automated AWS EC2 instance running Dockerized SyntricDB:
+```bash
+cd deploy/terraform
+terraform init
+terraform apply -var="admin_password=YourSecurePassword123!"
+```
+
+---
+
+## 🏷️ GitHub Release & Version Management Strategy
+
+SyntricDB uses **Semantic Versioning (`v<MAJOR>.<MINOR>.<PATCH>`)** paired with automated GitHub Actions tags:
+
+```
+                  ┌───────────────────────────────┐
+                  │ ./deploy/bump_version.sh 1.1.0│
+                  └───────────────┬───────────────┘
+                                  │
+                                  ▼
+                 ┌─────────────────────────────────┐
+                 │  git push origin main --tags    │
+                 └────────────────┬────────────────┘
+                                  │
+                                  ▼
+                 ┌─────────────────────────────────┐
+                 │ .github/workflows/release.yml   │
+                 └────────────────┬────────────────┘
+                                  │
+   ┌──────────────────────────────┼──────────────────────────────┐
+   ▼                              ▼                              ▼
+[ 📦 Build OS Zips ]     [ 🐳 GHCR Docker Image ]      [ 🎉 GitHub Release ]
+(Mac, Linux, Win)        (ghcr.io/syntricdb:1.1.0)     (Notes & Asset Attachments)
+```
+
+### Bumping a Version & Publishing a Release
+To publish a new version release:
+```bash
+# 1. Run the version bump script
+./deploy/bump_version.sh 1.1.0
+
+# 2. Push code and new tag to GitHub
+git push origin main --tags
+```
+The automated workflow will compile the executable shaded JAR, run unit tests, package multi-platform release `.zip` archives, build and push multi-arch Docker images to GHCR, and create an official GitHub Release with auto-generated release notes.
+

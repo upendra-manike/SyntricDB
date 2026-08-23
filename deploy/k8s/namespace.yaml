@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: syntricdb
+  labels:
+    app.kubernetes.io/name: syntricdb
+    app.kubernetes.io/part-of: syntricdb-cloud

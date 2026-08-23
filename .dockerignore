@@ -1,0 +1,15 @@
+.git
+.gitignore
+.github
+.idea
+.vscode
+.DS_Store
+target/
+dist/
+*.log
+*.mp4
+*.gif
+*.py
+*.tmp
+*.class
+.antigravityignore

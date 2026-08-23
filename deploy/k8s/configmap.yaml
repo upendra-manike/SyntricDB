@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: syntricdb-config
+  namespace: syntricdb
+data:
+  SYNTRICDB_BIND_ADDRESS: "0.0.0.0"
+  SYNTRICDB_PORT: "8080"
+  SYNTRICDB_AUTH_ENABLED: "true"
+  SYNTRICDB_DATA_DIR: "/var/lib/syntricdb/data"
+  SYNTRICDB_CLUSTER_SEEDS: "syntricdb-0.syntricdb-service.syntricdb.svc.cluster.local:8080"
