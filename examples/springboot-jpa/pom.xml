@@ -8,7 +8,7 @@
     <artifactId>syntricdb-springboot-jpa-demo</artifactId>
     <version>1.0.0</version>
     <name>syntricdb-springboot-jpa-demo</name>
-    <description>Spring Boot JPA & Vector CRUD Operations with SyntricDB</description>
+    <description>Spring Boot JPA and Vector CRUD Operations with SyntricDB</description>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
@@ -18,7 +18,7 @@
     </parent>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>17</java.version>
     </properties>
 
     <dependencies>
@@ -39,6 +39,13 @@
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- Spring Boot Starter Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
