@@ -8,18 +8,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Netty ChannelHandler implementing PostgreSQL PGWire Frontend Protocol (v3.0).
- * Enables psql, pgAdmin, DBeaver, and JDBC clients to connect natively.
+ * Supports both Simple Query ('Q') and Extended Query Protocol ('P', 'B', 'D', 'E', 'S')
+ * for native compatibility with PostgreSQL JDBC drivers, Spring Data JPA, Hibernate, DBeaver, and psql.
  */
 public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private static final Logger log = LoggerFactory.getLogger(PGWireServerHandler.class);
 
     private final QueryExecutor queryExecutor;
     private boolean authenticated = false;
+
+    private final Map<String, String> preparedStatements = new HashMap<>();
+    private final Map<String, String> portals = new HashMap<>();
 
     public PGWireServerHandler(QueryExecutor queryExecutor) {
         this.queryExecutor = queryExecutor;
@@ -32,27 +37,75 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
             return;
         }
 
-        if (msg.readableBytes() < 5) return;
-        byte msgType = msg.readByte();
-        int length = msg.readInt();
+        while (msg.readableBytes() >= 5) {
+            msg.markReaderIndex();
+            byte msgType = msg.readByte();
+            int length = msg.readInt();
 
-        switch (msgType) {
-            case 'Q': // Simple Query
-                byte[] queryBytes = new byte[length - 4 - 1]; // subtract length int and null terminator
-                msg.readBytes(queryBytes);
-                String sql = new String(queryBytes, StandardCharsets.UTF_8).trim();
-                log.info("Received PGWire SQL query: {}", sql);
-                executeQuery(ctx, sql);
+            if (msg.readableBytes() < length - 4) {
+                msg.resetReaderIndex();
                 break;
+            }
 
-            case 'X': // Terminate
-                ctx.close();
-                break;
+            ByteBuf body = msg.readSlice(length - 4);
+            switch (msgType) {
+                case 'Q': // Simple Query
+                    String sql = readString(body).trim();
+                    log.info("Received PGWire SQL query: {}", sql);
+                    executeQuery(ctx, sql, true);
+                    break;
 
-            default:
-                log.debug("PGWire unhandled message type: '{}'", (char) msgType);
-                sendReadyForQuery(ctx);
-                break;
+                case 'P': // Parse Prepared Statement
+                    String stmtName = readString(body);
+                    String prepareSql = readString(body);
+                    log.debug("PGWire Parse statement '{}': {}", stmtName, prepareSql);
+                    preparedStatements.put(stmtName, prepareSql);
+                    sendParseComplete(ctx);
+                    break;
+
+                case 'B': // Bind Portal
+                    String portalName = readString(body);
+                    String sourceStmtName = readString(body);
+                    String boundSql = bindParameters(sourceStmtName, body);
+                    log.debug("PGWire Bind portal '{}' -> {}", portalName, boundSql);
+                    portals.put(portalName, boundSql);
+                    sendBindComplete(ctx);
+                    break;
+
+                case 'D': // Describe
+                    byte descType = body.readableBytes() > 0 ? body.readByte() : 0;
+                    String descName = body.readableBytes() > 0 ? readString(body) : "";
+                    log.debug("PGWire Describe type '{}' name '{}'", (char) descType, descName);
+                    sendNoData(ctx);
+                    break;
+
+                case 'E': // Execute
+                    String execPortal = readString(body);
+                    int maxRows = body.readableBytes() >= 4 ? body.readInt() : 0;
+                    String queryToRun = portals.getOrDefault(execPortal, preparedStatements.getOrDefault(execPortal, ""));
+                    log.info("PGWire Execute portal '{}': {}", execPortal, queryToRun);
+                    if (!queryToRun.isEmpty()) {
+                        executeQuery(ctx, queryToRun, false);
+                    } else {
+                        sendCommandComplete(ctx, "OK");
+                    }
+                    break;
+
+                case 'S': // Sync
+                    sendReadyForQuery(ctx);
+                    ctx.flush();
+                    break;
+
+                case 'X': // Terminate
+                    ctx.close();
+                    return;
+
+                default:
+                    log.debug("PGWire unhandled message type: '{}'", (char) msgType);
+                    sendReadyForQuery(ctx);
+                    ctx.flush();
+                    break;
+            }
         }
     }
 
@@ -77,17 +130,77 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
         authOk.writeInt(0);
         ctx.write(authOk);
 
+        // Send BackendKeyData ('K', len 12)
+        ByteBuf keyData = ctx.alloc().buffer(13);
+        keyData.writeByte('K');
+        keyData.writeInt(12);
+        keyData.writeInt(1001); // Process ID
+        keyData.writeInt(54321); // Secret Key
+        ctx.write(keyData);
+
         // Send ParameterStatus messages
         sendParameterStatus(ctx, "server_version", "15.0 (SyntricDB-PGWire)");
         sendParameterStatus(ctx, "client_encoding", "UTF8");
         sendParameterStatus(ctx, "server_encoding", "UTF8");
+        sendParameterStatus(ctx, "integer_datetimes", "on");
+        sendParameterStatus(ctx, "StandardConformingStrings", "on");
+        sendParameterStatus(ctx, "session_authorization", "admin");
 
         sendReadyForQuery(ctx);
         ctx.flush();
         authenticated = true;
     }
 
-    private void executeQuery(ChannelHandlerContext ctx, String sql) {
+    private String bindParameters(String stmtName, ByteBuf body) {
+        String baseSql = preparedStatements.getOrDefault(stmtName, "");
+        if (baseSql.isEmpty()) {
+            return "";
+        }
+
+        try {
+            // Read parameter format codes
+            if (body.readableBytes() < 2) return baseSql;
+            short numFormatCodes = body.readShort();
+            for (int i = 0; i < numFormatCodes; i++) {
+                if (body.readableBytes() >= 2) body.readShort();
+            }
+
+            // Read parameter values
+            if (body.readableBytes() < 2) return baseSql;
+            short numParams = body.readShort();
+            String resultSql = baseSql;
+
+            for (int p = 1; p <= numParams; p++) {
+                if (body.readableBytes() < 4) break;
+                int valLen = body.readInt();
+                String valStr = "";
+                if (valLen > 0 && body.readableBytes() >= valLen) {
+                    byte[] bytes = new byte[valLen];
+                    body.readBytes(bytes);
+                    valStr = new String(bytes, StandardCharsets.UTF_8);
+                }
+
+                String paramMarker = "$" + p;
+                if (resultSql.contains(paramMarker)) {
+                    String replacement;
+                    if (valLen < 0) {
+                        replacement = "NULL";
+                    } else if (valStr.matches("^-?\\d+(\\.\\d+)?$")) {
+                        replacement = valStr;
+                    } else {
+                        replacement = "'" + valStr.replace("'", "''") + "'";
+                    }
+                    resultSql = resultSql.replace(paramMarker, replacement);
+                }
+            }
+            return resultSql;
+        } catch (Exception e) {
+            log.warn("Error parsing PGWire bind parameters: {}", e.getMessage());
+            return baseSql;
+        }
+    }
+
+    private void executeQuery(ChannelHandlerContext ctx, String sql, boolean sendReady) {
         try {
             QueryExecutor.QueryResult result = queryExecutor.execute(sql);
             if (result.getRows() != null && !result.getRows().isEmpty()) {
@@ -102,8 +215,31 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
         } catch (Exception e) {
             sendErrorResponse(ctx, e.getMessage());
         }
-        sendReadyForQuery(ctx);
+        if (sendReady) {
+            sendReadyForQuery(ctx);
+        }
         ctx.flush();
+    }
+
+    private void sendParseComplete(ChannelHandlerContext ctx) {
+        ByteBuf buf = ctx.alloc().buffer(5);
+        buf.writeByte('1');
+        buf.writeInt(4);
+        ctx.write(buf);
+    }
+
+    private void sendBindComplete(ChannelHandlerContext ctx) {
+        ByteBuf buf = ctx.alloc().buffer(5);
+        buf.writeByte('2');
+        buf.writeInt(4);
+        ctx.write(buf);
+    }
+
+    private void sendNoData(ChannelHandlerContext ctx) {
+        ByteBuf buf = ctx.alloc().buffer(5);
+        buf.writeByte('n');
+        buf.writeInt(4);
+        ctx.write(buf);
     }
 
     private void sendParameterStatus(ChannelHandlerContext ctx, String name, String value) {
@@ -198,5 +334,19 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
         buf.setInt(markIndex, buf.writerIndex() - markIndex);
         ctx.write(buf);
+    }
+
+    private String readString(ByteBuf buf) {
+        int length = 0;
+        int startIndex = buf.readerIndex();
+        while (buf.isReadable()) {
+            if (buf.readByte() == 0) {
+                break;
+            }
+            length++;
+        }
+        byte[] bytes = new byte[length];
+        buf.getBytes(startIndex, bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 }
