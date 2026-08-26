@@ -17,7 +17,7 @@ public class SyntricConfig {
     private boolean authEnabled = true;
     private String adminUser = "admin";
     private String adminPassword = "syntricdb_secret_pass";
-    private String dataDir = System.getProperty("user.home") + "/.syntricdb/data";
+    private String dataDir = Paths.get(System.getProperty("user.home"), ".syntricdb", "data").toString();
     private String clusterSeeds = "127.0.0.1:8080";
     private boolean sslEnabled = false;
 
@@ -28,13 +28,10 @@ public class SyntricConfig {
     public void loadConfig() {
         Properties props = new Properties();
 
-        // 1. Check system config file /etc/syntricdb/syntricdb.conf
-        Path confPath = Paths.get("/etc/syntricdb/syntricdb.conf");
-        if (!Files.exists(confPath)) {
-            confPath = Paths.get(System.getProperty("user.home"), ".syntricdb", "syntricdb.conf");
-        }
+        // Check config locations in priority order
+        Path confPath = resolveConfigPath();
 
-        if (Files.exists(confPath)) {
+        if (confPath != null && Files.exists(confPath)) {
             try (InputStream is = Files.newInputStream(confPath)) {
                 props.load(is);
                 log.info("Loaded SyntricDB configuration from: {}", confPath);
@@ -52,6 +49,47 @@ public class SyntricConfig {
         dataDir = getEnvOrProp("SYNTRICDB_DATA_DIR", props.getProperty("data_dir", dataDir));
         clusterSeeds = getEnvOrProp("SYNTRICDB_CLUSTER_SEEDS", props.getProperty("cluster_seeds", clusterSeeds));
         sslEnabled = Boolean.parseBoolean(getEnvOrProp("SYNTRICDB_SSL_ENABLED", props.getProperty("ssl_enabled", String.valueOf(sslEnabled))));
+    }
+
+    private Path resolveConfigPath() {
+        // 1. Explicit system property or env variable
+        String sysConf = System.getProperty("syntricdb.config", System.getenv("SYNTRICDB_CONFIG"));
+        if (sysConf != null && !sysConf.isBlank()) {
+            Path p = Paths.get(sysConf);
+            if (Files.exists(p)) return p;
+        }
+
+        // 2. Check platform specific & standard candidate locations
+        java.util.List<Path> candidates = new java.util.ArrayList<>();
+
+        String appData = System.getenv("APPDATA");
+        if (appData != null && !appData.isBlank()) {
+            candidates.add(Paths.get(appData, "SyntricDB", "syntricdb.conf"));
+        }
+        String localAppData = System.getenv("LOCALAPPDATA");
+        if (localAppData != null && !localAppData.isBlank()) {
+            candidates.add(Paths.get(localAppData, "SyntricDB", "syntricdb.conf"));
+        }
+        String programData = System.getenv("ProgramData");
+        if (programData != null && !programData.isBlank()) {
+            candidates.add(Paths.get(programData, "SyntricDB", "syntricdb.conf"));
+        }
+
+        String userHome = System.getProperty("user.home");
+        if (userHome != null && !userHome.isBlank()) {
+            candidates.add(Paths.get(userHome, ".syntricdb", "syntricdb.conf"));
+        }
+
+        candidates.add(Paths.get("/etc/syntricdb/syntricdb.conf"));
+        candidates.add(Paths.get("syntricdb.conf"));
+        candidates.add(Paths.get("..", "syntricdb.conf"));
+
+        for (Path c : candidates) {
+            if (Files.exists(c)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     private String getEnvOrProp(String envKey, String defaultValue) {

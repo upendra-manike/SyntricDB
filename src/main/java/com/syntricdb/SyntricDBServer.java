@@ -29,7 +29,11 @@ public class SyntricDBServer {
     private final NettyServer nettyServer;
 
     public SyntricDBServer(int port, Path dataDir) throws Exception {
-        this.config = new SyntricConfig();
+        this(new SyntricConfig(), port, dataDir);
+    }
+
+    public SyntricDBServer(SyntricConfig config, int port, Path dataDir) throws Exception {
+        this.config = config;
         this.securityManager = new SecurityManager(config);
         this.storageEngine = new StorageEngine(dataDir);
         this.aiEngine = new AIEngine(128);
@@ -122,7 +126,7 @@ public class SyntricDBServer {
             boolean cli = args.length > 0 && "--cli".equalsIgnoreCase(args[0]);
             Path dataDir = Paths.get(config.getDataDir());
 
-            SyntricDBServer server = new SyntricDBServer(port, dataDir);
+            SyntricDBServer server = new SyntricDBServer(config, port, dataDir);
             server.start(cli);
         } catch (Exception e) {
             log.error("Fatal error starting SyntricDB Server", e);

@@ -33,6 +33,7 @@ cp LICENSE "$DIST_DIR/macOS/"
 echo "🪟 Packaging Windows Release (syntricdb-v$VERSION-windows.zip)..."
 cp "$JAR_PATH" "$DIST_DIR/windows/syntricdb-engine.jar"
 cp deploy/windows/install_windows.ps1 "$DIST_DIR/windows/install.ps1"
+cp install.bat "$DIST_DIR/windows/install.bat"
 cp README.md "$DIST_DIR/windows/"
 cp LICENSE "$DIST_DIR/windows/"
 (cd "$DIST_DIR/windows" && zip -r "../syntricdb-v$VERSION-windows.zip" .)

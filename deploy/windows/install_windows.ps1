@@ -1,41 +1,72 @@
 # ==============================================================================
 # SyntricDB Windows Native PowerShell Installer (Windows 10/11 & Server)
-# Usage: powershell -ExecutionPolicy Bypass -File install_windows.ps1
+# Usage (Online One-Liner):
+# powershell -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1 | iex"
+# Usage (Local File):
+# powershell -ExecutionPolicy Bypass -File install_windows.ps1
 # ==============================================================================
 
 Write-Host "==========================================================================" -ForegroundColor Cyan
 Write-Host "⚡ SyntricDB Windows Native Database Installer ⚡" -ForegroundColor Cyan
 Write-Host "==========================================================================" -ForegroundColor Cyan
 
-$InstallDir = "$env:ProgramFiles\SyntricDB"
+# 1. Detect Privileges & Set Install Directory
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if ($isAdmin) {
+    Write-Host "🛡️  Running as Administrator (System-wide installation)" -ForegroundColor Green
+    $InstallDir = "$env:ProgramFiles\SyntricDB"
+} else {
+    Write-Host "👤 Running as Normal User (User-level installation - No Admin needed)" -ForegroundColor Yellow
+    $InstallDir = "$env:LOCALAPPDATA\Programs\SyntricDB"
+}
+
 $ConfigDir = "$env:APPDATA\SyntricDB"
+$UserHomeConfigDir = "$env:USERPROFILE\.syntricdb"
 $ConfFile = "$ConfigDir\syntricdb.conf"
 
-# 1. Create Directories
+# 2. Create Target Directories
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
 New-Item -ItemType Directory -Force -Path "$ConfigDir\data" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ConfigDir\wal" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ConfigDir\snapshots" | Out-Null
+New-Item -ItemType Directory -Force -Path $UserHomeConfigDir | Out-Null
+New-Item -ItemType Directory -Force -Path "$UserHomeConfigDir\data" | Out-Null
 
-# 2. Verify / Install Java 21
+# 3. Verify / Install Java 21
 try {
     $javaVer = java -version 2>&1
     Write-Host "✅ Detected Java Runtime Environment." -ForegroundColor Green
 } catch {
     Write-Host "📦 Installing OpenJDK 21 via winget..." -ForegroundColor Yellow
-    winget install EclipseAdoptium.Temurin.21.JDK --silent --accept-package-agreements --accept-source-agreements
+    try {
+        winget install EclipseAdoptium.Temurin.21.JDK --silent --accept-package-agreements --accept-source-agreements
+    } catch {
+        Write-Host "⚠️ winget install skipped or failed. Ensure Java 21 is installed manually if needed." -ForegroundColor Yellow
+    }
 }
 
-# 3. Setup Configuration File with Custom Credentials
-Write-Host "🔐 Setting up Database Administrator Credentials:" -ForegroundColor Yellow
-$inputUser = Read-Host "   • Admin Username [default: admin]"
-$AdminUser = if ([string]::IsNullOrWhiteSpace($inputUser)) { "admin" } else { $inputUser }
+# 4. Setup Configuration File (Fail-safe for iex / non-interactive execution)
+$AdminUser = "admin"
+$AdminPass = "syntricdb_secret_pass"
 
-$inputPass = Read-Host "   • Admin Password [default: syntricdb_secret_pass]" -AsSecureString
-$BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($inputPass)
-$PlainPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-$AdminPass = if ([string]::IsNullOrWhiteSpace($PlainPass)) { "syntricdb_secret_pass" } else { $PlainPass }
+if ($env:SYNTRICDB_NON_INTERACTIVE -ne "true") {
+    try {
+        Write-Host "🔐 Setting up Database Administrator Credentials:" -ForegroundColor Yellow
+        $inputUser = Read-Host "   • Admin Username [default: admin]"
+        if (-not [string]::IsNullOrWhiteSpace($inputUser)) { $AdminUser = $inputUser }
+
+        $inputPass = Read-Host "   • Admin Password [default: syntricdb_secret_pass]" -AsSecureString
+        if ($inputPass) {
+            $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($inputPass)
+            $PlainPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+            if (-not [string]::IsNullOrWhiteSpace($PlainPass)) { $AdminPass = $PlainPass }
+        }
+    } catch {
+        # Silent fallback to default credentials if running non-interactively via iex pipeline
+    }
+}
 
 $configContent = @"
 bind_address=0.0.0.0
@@ -50,49 +81,184 @@ firewall_enabled=true
 rate_limit_per_sec=1000
 dlp_masking_enabled=true
 "@
-Set-Content -Path $ConfFile -Value $configContent
+
+Set-Content -Path $ConfFile -Value $configContent -Encoding UTF8
+Set-Content -Path "$UserHomeConfigDir\syntricdb.conf" -Value $configContent -Encoding UTF8
 Write-Host "✅ Configuration saved to $ConfFile" -ForegroundColor Green
 
-# 4. Copy JAR
-if (Test-Path "target\syntricdb-engine-1.0.0-SNAPSHOT.jar") {
-    Copy-Item "target\syntricdb-engine-1.0.0-SNAPSHOT.jar" "$InstallDir\syntricdb-engine.jar" -Force
+# 5. Locate or Download Engine JAR File
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$jarCandidates = @(
+    "syntricdb-engine.jar",
+    "syntricdb-engine-1.0.0-SNAPSHOT.jar",
+    "target\syntricdb-engine-1.0.0-SNAPSHOT.jar",
+    "..\target\syntricdb-engine-1.0.0-SNAPSHOT.jar",
+    "$scriptDir\syntricdb-engine.jar",
+    "$scriptDir\target\syntricdb-engine-1.0.0-SNAPSHOT.jar"
+)
+
+$jarFound = $false
+foreach ($candidate in $jarCandidates) {
+    if (Test-Path $candidate) {
+        Copy-Item $candidate "$InstallDir\syntricdb-engine.jar" -Force
+        Write-Host "✅ Installed engine JAR from $candidate" -ForegroundColor Green
+        $jarFound = $true
+        break
+    }
 }
 
-# 5. Create syntricdb.bat CMD Launcher
-$batContent = @"
+if (-not $jarFound) {
+    $foundFile = Get-ChildItem -Path . -Filter "syntricdb-engine*.jar" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($foundFile) {
+        Copy-Item $foundFile.FullName "$InstallDir\syntricdb-engine.jar" -Force
+        Write-Host "✅ Installed engine JAR from $($foundFile.FullName)" -ForegroundColor Green
+        $jarFound = $true
+    }
+}
+
+# If JAR still not found (e.g. running via raw online iwr | iex), attempt download or mvn build
+if (-not $jarFound) {
+    Write-Host "🌐 Engine JAR not found locally. Downloading pre-built JAR..." -ForegroundColor Yellow
+    $downloadUrl = "https://github.com/upendra-manike/SyntricDB/releases/download/v1.0.0/syntricdb-engine.jar"
+    $fallbackUrl = "https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/dist/windows/syntricdb-engine.jar"
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile "$InstallDir\syntricdb-engine.jar" -UseBasicParsing
+        Write-Host "✅ Downloaded engine JAR from release package." -ForegroundColor Green
+        $jarFound = $true
+    } catch {
+        try {
+            Invoke-WebRequest -Uri $fallbackUrl -OutFile "$InstallDir\syntricdb-engine.jar" -UseBasicParsing
+            Write-Host "✅ Downloaded engine JAR from distribution repository." -ForegroundColor Green
+            $jarFound = $true
+        } catch {
+            Write-Host "⚠️ Online download unverified. Checking Maven compiler..." -ForegroundColor Yellow
+            if (Get-Command mvn -ErrorAction SilentlyContinue) {
+                Write-Host "🔨 Compiling SyntricDB JAR via Maven..." -ForegroundColor Yellow
+                mvn clean package -DskipTests
+                if (Test-Path "target\syntricdb-engine-1.0.0-SNAPSHOT.jar") {
+                    Copy-Item "target\syntricdb-engine-1.0.0-SNAPSHOT.jar" "$InstallDir\syntricdb-engine.jar" -Force
+                    $jarFound = $true
+                }
+            }
+        }
+    }
+}
+
+# 6. Create syntricdb.bat CMD & PowerShell Launcher
+$batContent = @'
 @echo off
-SET JAR_PATH="$InstallDir\syntricdb-engine.jar"
-IF "%1"=="start" (
-    echo Starting SyntricDB Engine on Port 8080...
-    start /B java -Xms1g -Xmx4g -jar %JAR_PATH% > "%ConfigDir%\syntricdb.log" 2>&1
-    echo SyntricDB Server launched in background.
-    echo Web Dashboard: http://localhost:8080/
-    EXIT /B 0
-)
-IF "%1"=="cli" (
-    java -cp %JAR_PATH% com.syntricdb.cli.SyntricCLI %*
-    EXIT /B 0
-)
-IF "%1"=="status" (
-    tasklist | findstr /i "java.exe"
-    EXIT /B 0
-)
-echo Usage: syntricdb {start^|cli^|status}
-"@
+setlocal enableextensions
+SET INSTALL_DIR=%~dp0
+SET INSTALL_DIR=%INSTALL_DIR:~0,-1%
+SET JAR_PATH="%INSTALL_DIR%\syntricdb-engine.jar"
 
-Set-Content -Path "$InstallDir\syntricdb.bat" -Value $batContent
+IF "%APPDATA%"=="" (
+    SET CONF_DIR="%USERPROFILE%\.syntricdb"
+) ELSE (
+    SET CONF_DIR="%APPDATA%\SyntricDB"
+)
 
-# 6. Add to System PATH Environment Variable
+IF NOT EXIST %CONF_DIR% mkdir %CONF_DIR%
+IF NOT EXIST %CONF_DIR%\data mkdir %CONF_DIR%\data
+IF NOT EXIST %CONF_DIR%\wal mkdir %CONF_DIR%\wal
+IF NOT EXIST %CONF_DIR%\snapshots mkdir %CONF_DIR%\snapshots
+
+SET LOG_FILE=%CONF_DIR%\syntricdb.log
+
+IF "%1"=="start" GOTO start
+IF "%1"=="server" GOTO start
+IF "%1"=="stop" GOTO stop
+IF "%1"=="status" GOTO status
+IF "%1"=="cli" GOTO cli
+IF "%1"=="logs" GOTO logs
+GOTO usage
+
+:start
+WHERE java >nul 2>nul
+IF %ERRORLEVEL% NEQ 0 (
+    echo ❌ Error: Java runtime is not installed or not in PATH!
+    echo Please install Java 21: winget install EclipseAdoptium.Temurin.21.JDK
+    EXIT /B 1
+)
+IF NOT EXIST %JAR_PATH% (
+    echo ❌ Error: SyntricDB Engine JAR not found at %JAR_PATH%
+    EXIT /B 1
+)
+echo 🚀 Starting SyntricDB AI-Native Server on Port 8080...
+start "SyntricDB Server" /B java -Xms512m -Xmx4g -jar %JAR_PATH% > "%LOG_FILE%" 2>&1
+echo ✅ SyntricDB Server launched in background.
+echo 📜 Log File     : %LOG_FILE%
+echo 🌐 Web Dashboard: http://localhost:8080/
+echo 📡 REST API     : http://localhost:8080/api/sql
+EXIT /B 0
+
+:stop
+echo 🛑 Stopping SyntricDB Server...
+powershell -Command "Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>nul
+echo ✅ SyntricDB Server stopped.
+EXIT /B 0
+
+:status
+powershell -Command "$p = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }; if ($p) { Write-Host '🟢 SyntricDB Server is running (PID: ' $p.ProcessId ')' -ForegroundColor Green; Write-Host '🌐 Web Console: http://localhost:8080/' -ForegroundColor Cyan } else { Write-Host '🔴 SyntricDB Server is stopped.' -ForegroundColor Red }"
+EXIT /B 0
+
+:cli
+WHERE java >nul 2>nul
+IF %ERRORLEVEL% NEQ 0 (
+    echo ❌ Error: Java is not installed or not in PATH!
+    EXIT /B 1
+)
+shift
+java -cp %JAR_PATH% com.syntricdb.cli.SyntricCLI %1 %2 %3 %4 %5 %6 %7 %8 %9
+EXIT /B 0
+
+:logs
+powershell -Command "if (Test-Path '%LOG_FILE%') { Get-Content '%LOG_FILE%' -Tail 50 } else { Write-Host 'No log file found at %LOG_FILE%' -ForegroundColor Yellow }"
+EXIT /B 0
+
+:usage
+echo ==========================================================
+echo ⚡ SyntricDB: Next-Generation AI-Native Unified Database ⚡
+echo ==========================================================
+echo Usage: syntricdb {start|stop|status|cli|logs}
+echo   syntricdb start   : Launch background server daemon
+echo   syntricdb stop    : Shutdown background server daemon
+echo   syntricdb status  : Check server status
+echo   syntricdb cli     : Launch interactive SQL & Vector shell
+echo   syntricdb logs    : Tail server stdout/stderr logs
+echo ==========================================================
+EXIT /B 0
+'@
+
+Set-Content -Path "$InstallDir\syntricdb.bat" -Value $batContent -Encoding UTF8
+Set-Content -Path "$InstallDir\syntricdb.cmd" -Value $batContent -Encoding UTF8
+
+# 7. Update PATH Environment Variable (Registry + Active Process Session)
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$InstallDir*") {
     [Environment]::SetEnvironmentVariable("Path", "$UserPath;$InstallDir", "User")
     Write-Host "✅ Added $InstallDir to User PATH environment variable." -ForegroundColor Green
 }
 
+if ($isAdmin) {
+    $MachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($MachinePath -notlike "*$InstallDir*") {
+        [Environment]::SetEnvironmentVariable("Path", "$MachinePath;$InstallDir", "Machine")
+        Write-Host "✅ Added $InstallDir to System PATH environment variable." -ForegroundColor Green
+    }
+}
+
+# Immediately make syntricdb available in current active terminal
+if ($env:Path -notlike "*$InstallDir*") {
+    $env:Path = "$InstallDir;$env:Path"
+}
+
 Write-Host "==========================================================================" -ForegroundColor Cyan
 Write-Host "🎉 SyntricDB Windows Installation Complete!" -ForegroundColor Green
 Write-Host "==========================================================================" -ForegroundColor Cyan
 Write-Host "🚀 Start Server   : syntricdb start" -ForegroundColor Yellow
+Write-Host "🛑 Stop Server    : syntricdb stop" -ForegroundColor Yellow
+Write-Host "📊 Check Status   : syntricdb status" -ForegroundColor Yellow
 Write-Host "💻 Launch CLI      : syntricdb cli" -ForegroundColor Yellow
 Write-Host "🌐 Web Dashboard  : http://localhost:8080/" -ForegroundColor Yellow
 Write-Host "==========================================================================" -ForegroundColor Cyan

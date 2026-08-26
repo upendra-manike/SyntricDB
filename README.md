@@ -45,11 +45,16 @@ Instead of stitching together PostgreSQL, Redis, Elasticsearch, Kafka, and Pinec
 curl -fsSL https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/mac/install_mac.sh | bash
 ```
 
-### 🪟 Windows 10 / 11 & Windows Server (One-Line PowerShell Install)
-Open PowerShell as Administrator:
+### 🪟 Windows 10 / 11 & Windows Server (PowerShell or CMD)
+**One-Line Online PowerShell Install** (Normal User or Administrator):
 ```powershell
 powershell -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1 | iex"
 ```
+Or run locally via PowerShell or double-click `install.bat`:
+```cmd
+install.bat
+```
+*(Automatic fallback for non-admin users guarantees clean installation without permission errors!)*
 
 ### 🐳 Docker One-Liner (Cloud & Container Quickstart)
 ```bash
