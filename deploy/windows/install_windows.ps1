@@ -10,6 +10,21 @@ Write-Host "====================================================================
 Write-Host "⚡ SyntricDB Windows Native Database Installer ⚡" -ForegroundColor Cyan
 Write-Host "==========================================================================" -ForegroundColor Cyan
 
+# Function to check if a JAR file is valid and non-corrupt (> 1MB & PK ZIP header)
+function Test-ValidJar ($filePath) {
+    if (-not (Test-Path $filePath)) { return $false }
+    $item = Get-Item $filePath
+    if ($item.Length -lt 1000000) { return $false }
+    try {
+        $stream = [System.IO.File]::OpenRead($filePath)
+        $b1 = $stream.ReadByte()
+        $b2 = $stream.ReadByte()
+        $stream.Close()
+        if ($b1 -eq 0x50 -and $b2 -eq 0x4B) { return $true }
+    } catch {}
+    return $false
+}
+
 # 1. Detect Privileges & Set Install Directory
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -64,7 +79,7 @@ if ($env:SYNTRICDB_NON_INTERACTIVE -ne "true") {
             if (-not [string]::IsNullOrWhiteSpace($PlainPass)) { $AdminPass = $PlainPass }
         }
     } catch {
-        # Silent fallback to default credentials if running non-interactively via iex pipeline
+        # Fallback to default credentials if running non-interactively via iex pipeline
     }
 }
 
@@ -94,76 +109,93 @@ $jarCandidates = @(
     "target\syntricdb-engine-1.0.0-SNAPSHOT.jar",
     "..\target\syntricdb-engine-1.0.0-SNAPSHOT.jar",
     "$scriptDir\syntricdb-engine.jar",
+    "$scriptDir\deploy\windows\syntricdb-engine.jar",
     "$scriptDir\target\syntricdb-engine-1.0.0-SNAPSHOT.jar"
 )
 
+$targetJar = "$InstallDir\syntricdb-engine.jar"
 $jarFound = $false
+
 foreach ($candidate in $jarCandidates) {
-    if (Test-Path $candidate) {
-        Copy-Item $candidate "$InstallDir\syntricdb-engine.jar" -Force
-        Write-Host "✅ Installed engine JAR from $candidate" -ForegroundColor Green
+    if (Test-ValidJar $candidate) {
+        Copy-Item $candidate $targetJar -Force
+        Write-Host "✅ Installed engine JAR from local path ($candidate)" -ForegroundColor Green
         $jarFound = $true
         break
     }
 }
 
 if (-not $jarFound) {
-    $foundFile = Get-ChildItem -Path . -Filter "syntricdb-engine*.jar" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    $foundFile = Get-ChildItem -Path . -Filter "syntricdb-engine*.jar" -Recurse -ErrorAction SilentlyContinue | Where-Object { Test-ValidJar $_.FullName } | Select-Object -First 1
     if ($foundFile) {
-        Copy-Item $foundFile.FullName "$InstallDir\syntricdb-engine.jar" -Force
-        Write-Host "✅ Installed engine JAR from $($foundFile.FullName)" -ForegroundColor Green
+        Copy-Item $foundFile.FullName $targetJar -Force
+        Write-Host "✅ Installed engine JAR from search ($($foundFile.FullName))" -ForegroundColor Green
         $jarFound = $true
     }
 }
 
-# If JAR still not found (e.g. running via raw online iwr | iex), attempt download or mvn build
+# Download directly from raw GitHub if not found locally (for iwr | iex online execution)
 if (-not $jarFound) {
-    Write-Host "🌐 Engine JAR not found locally. Downloading pre-built JAR..." -ForegroundColor Yellow
-    $downloadUrl = "https://github.com/upendra-manike/SyntricDB/releases/download/v1.0.0/syntricdb-engine.jar"
-    $fallbackUrl = "https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/dist/windows/syntricdb-engine.jar"
-    try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile "$InstallDir\syntricdb-engine.jar" -UseBasicParsing
-        Write-Host "✅ Downloaded engine JAR from release package." -ForegroundColor Green
-        $jarFound = $true
-    } catch {
+    Write-Host "🌐 Engine JAR not found locally. Downloading production JAR from GitHub repository..." -ForegroundColor Yellow
+    $downloadUrls = @(
+        "https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/syntricdb-engine.jar",
+        "https://github.com/upendra-manike/SyntricDB/raw/main/deploy/windows/syntricdb-engine.jar",
+        "https://github.com/upendra-manike/SyntricDB/releases/download/v1.0.0/syntricdb-engine.jar"
+    )
+
+    foreach ($url in $downloadUrls) {
         try {
-            Invoke-WebRequest -Uri $fallbackUrl -OutFile "$InstallDir\syntricdb-engine.jar" -UseBasicParsing
-            Write-Host "✅ Downloaded engine JAR from distribution repository." -ForegroundColor Green
-            $jarFound = $true
-        } catch {
-            Write-Host "⚠️ Online download unverified. Checking Maven compiler..." -ForegroundColor Yellow
-            if (Get-Command mvn -ErrorAction SilentlyContinue) {
-                Write-Host "🔨 Compiling SyntricDB JAR via Maven..." -ForegroundColor Yellow
-                mvn clean package -DskipTests
-                if (Test-Path "target\syntricdb-engine-1.0.0-SNAPSHOT.jar") {
-                    Copy-Item "target\syntricdb-engine-1.0.0-SNAPSHOT.jar" "$InstallDir\syntricdb-engine.jar" -Force
-                    $jarFound = $true
-                }
+            Write-Host "   Downloading: $url" -ForegroundColor Gray
+            Invoke-WebRequest -Uri $url -OutFile $targetJar -UseBasicParsing -ErrorAction Stop
+            if (Test-ValidJar $targetJar) {
+                Write-Host "✅ Engine JAR downloaded and validated successfully!" -ForegroundColor Green
+                $jarFound = $true
+                break
+            } else {
+                Remove-Item $targetJar -ErrorAction SilentlyContinue
             }
+        } catch {
+            Remove-Item $targetJar -ErrorAction SilentlyContinue
         }
     }
 }
 
-# 6. Create syntricdb.bat CMD & PowerShell Launcher
+if (-not $jarFound) {
+    if (Get-Command mvn -ErrorAction SilentlyContinue) {
+        Write-Host "🔨 Compiling SyntricDB JAR via Maven..." -ForegroundColor Yellow
+        mvn clean package -DskipTests
+        if (Test-ValidJar "target\syntricdb-engine-1.0.0-SNAPSHOT.jar") {
+            Copy-Item "target\syntricdb-engine-1.0.0-SNAPSHOT.jar" $targetJar -Force
+            $jarFound = $true
+        }
+    }
+}
+
+if (-not (Test-ValidJar $targetJar)) {
+    Write-Host "❌ Error: Could not locate or download a valid syntricdb-engine.jar file." -ForegroundColor Red
+    exit 1
+}
+
+# 6. Create syntricdb.bat CMD & PowerShell Launcher with Fixed Quoting Syntax
 $batContent = @'
 @echo off
 setlocal enableextensions
-SET INSTALL_DIR=%~dp0
-SET INSTALL_DIR=%INSTALL_DIR:~0,-1%
-SET JAR_PATH="%INSTALL_DIR%\syntricdb-engine.jar"
+SET "INSTALL_DIR=%~dp0"
+IF "%INSTALL_DIR:~-1%"=="\" SET "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
+SET "JAR_PATH=%INSTALL_DIR%\syntricdb-engine.jar"
 
 IF "%APPDATA%"=="" (
-    SET CONF_DIR="%USERPROFILE%\.syntricdb"
+    SET "CONF_DIR=%USERPROFILE%\.syntricdb"
 ) ELSE (
-    SET CONF_DIR="%APPDATA%\SyntricDB"
+    SET "CONF_DIR=%APPDATA%\SyntricDB"
 )
 
-IF NOT EXIST %CONF_DIR% mkdir %CONF_DIR%
-IF NOT EXIST %CONF_DIR%\data mkdir %CONF_DIR%\data
-IF NOT EXIST %CONF_DIR%\wal mkdir %CONF_DIR%\wal
-IF NOT EXIST %CONF_DIR%\snapshots mkdir %CONF_DIR%\snapshots
+IF NOT EXIST "%CONF_DIR%" mkdir "%CONF_DIR%"
+IF NOT EXIST "%CONF_DIR%\data" mkdir "%CONF_DIR%\data"
+IF NOT EXIST "%CONF_DIR%\wal" mkdir "%CONF_DIR%\wal"
+IF NOT EXIST "%CONF_DIR%\snapshots" mkdir "%CONF_DIR%\snapshots"
 
-SET LOG_FILE=%CONF_DIR%\syntricdb.log
+SET "LOG_FILE=%CONF_DIR%\syntricdb.log"
 
 IF "%1"=="start" GOTO start
 IF "%1"=="server" GOTO start
@@ -180,26 +212,26 @@ IF %ERRORLEVEL% NEQ 0 (
     echo Please install Java 21: winget install EclipseAdoptium.Temurin.21.JDK
     EXIT /B 1
 )
-IF NOT EXIST %JAR_PATH% (
+IF NOT EXIST "%JAR_PATH%" (
     echo ❌ Error: SyntricDB Engine JAR not found at %JAR_PATH%
     EXIT /B 1
 )
-echo 🚀 Starting SyntricDB AI-Native Server on Port 8080...
-start "SyntricDB Server" /B java -Xms512m -Xmx4g -jar %JAR_PATH% > "%LOG_FILE%" 2>&1
-echo ✅ SyntricDB Server launched in background.
-echo 📜 Log File     : %LOG_FILE%
-echo 🌐 Web Dashboard: http://localhost:8080/
-echo 📡 REST API     : http://localhost:8080/api/sql
+echo Starting SyntricDB AI-Native Engine on Port 8080...
+start "SyntricDB Server" /B java -Xms512m -Xmx4g -jar "%JAR_PATH%" > "%LOG_FILE%" 2>&1
+echo SyntricDB Server launched in background.
+echo Log File     : %LOG_FILE%
+echo Web Dashboard: http://localhost:8080/
+echo REST API     : http://localhost:8080/api/sql
 EXIT /B 0
 
 :stop
-echo 🛑 Stopping SyntricDB Server...
+echo Stopping SyntricDB Server...
 powershell -Command "Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>nul
-echo ✅ SyntricDB Server stopped.
+echo SyntricDB Server stopped.
 EXIT /B 0
 
 :status
-powershell -Command "$p = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }; if ($p) { Write-Host '🟢 SyntricDB Server is running (PID: ' $p.ProcessId ')' -ForegroundColor Green; Write-Host '🌐 Web Console: http://localhost:8080/' -ForegroundColor Cyan } else { Write-Host '🔴 SyntricDB Server is stopped.' -ForegroundColor Red }"
+powershell -Command "$p = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }; if ($p) { Write-Host 'SyntricDB Server is running (PID: ' $p.ProcessId ')' -ForegroundColor Green; Write-Host 'Web Console: http://localhost:8080/' -ForegroundColor Cyan } else { Write-Host 'SyntricDB Server is stopped.' -ForegroundColor Red }"
 EXIT /B 0
 
 :cli
@@ -209,7 +241,7 @@ IF %ERRORLEVEL% NEQ 0 (
     EXIT /B 1
 )
 shift
-java -cp %JAR_PATH% com.syntricdb.cli.SyntricCLI %1 %2 %3 %4 %5 %6 %7 %8 %9
+java -cp "%JAR_PATH%" com.syntricdb.cli.SyntricCLI %1 %2 %3 %4 %5 %6 %7 %8 %9
 EXIT /B 0
 
 :logs
@@ -218,7 +250,7 @@ EXIT /B 0
 
 :usage
 echo ==========================================================
-echo ⚡ SyntricDB: Next-Generation AI-Native Unified Database ⚡
+echo SyntricDB: Next-Generation AI-Native Unified Database
 echo ==========================================================
 echo Usage: syntricdb {start|stop|status|cli|logs}
 echo   syntricdb start   : Launch background server daemon
