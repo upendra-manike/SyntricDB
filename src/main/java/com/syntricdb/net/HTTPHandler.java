@@ -419,4 +419,10 @@ public class HTTPHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
         response.headers().set(HttpHeaderNames.ACCESS_CONTROL_ALLOW_HEADERS, "Content-Type");
         ctx.writeAndFlush(response);
     }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+        log.debug("Netty HTTP handler caught exception: {}", cause.getMessage());
+        ctx.close();
+    }
 }

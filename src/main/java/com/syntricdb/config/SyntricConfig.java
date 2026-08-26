@@ -32,8 +32,17 @@ public class SyntricConfig {
         Path confPath = resolveConfigPath();
 
         if (confPath != null && Files.exists(confPath)) {
-            try (InputStream is = Files.newInputStream(confPath)) {
-                props.load(is);
+            try {
+                for (String line : Files.readAllLines(confPath, java.nio.charset.StandardCharsets.UTF_8)) {
+                    line = line.trim();
+                    if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) continue;
+                    int eqIdx = line.indexOf('=');
+                    if (eqIdx > 0) {
+                        String key = line.substring(0, eqIdx).trim();
+                        String val = line.substring(eqIdx + 1).trim();
+                        props.setProperty(key, val);
+                    }
+                }
                 log.info("Loaded SyntricDB configuration from: {}", confPath);
             } catch (Exception e) {
                 log.warn("Failed to load config file: {}", confPath, e);

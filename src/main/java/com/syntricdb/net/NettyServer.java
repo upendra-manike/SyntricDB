@@ -79,6 +79,16 @@ public class NettyServer {
         log.info("⚡ Redis RESP Cache Protocol Ready (Port 6379 Handler)");
     }
 
+    public Channel getChannel() {
+        return channel;
+    }
+
+    public void sync() throws InterruptedException {
+        if (channel != null) {
+            channel.closeFuture().sync();
+        }
+    }
+
     public void stop() {
         if (channel != null) channel.close();
         if (bossGroup != null) bossGroup.shutdownGracefully();

@@ -66,11 +66,21 @@ public class SyntricDBServer {
         log.info("🔍 HNSW Vector API       : POST http://localhost:{}/api/vector/search", config.getPort());
         log.info("==========================================================================");
 
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("Shutting down SyntricDB Server...");
+            try {
+                nettyServer.stop();
+                storageEngine.close();
+            } catch (Exception e) {
+                log.warn("Error during shutdown", e);
+            }
+        }));
+
         if (startCli) {
             SyntricCLI cli = new SyntricCLI(queryExecutor);
             cli.startInteractiveRepl();
         } else {
-            Thread.currentThread().join();
+            nettyServer.sync();
         }
     }
 
