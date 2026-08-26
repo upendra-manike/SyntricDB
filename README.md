@@ -58,7 +58,7 @@ install.bat
 
 ### 🗑️ Windows Uninstaller (One-Line PowerShell)
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/uninstall_windows.ps1?v=1.0.1' | iex"
+powershell -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/uninstall_windows.ps1?v=1.0.2' | iex"
 ```
 
 ### 🐳 Docker One-Liner (Cloud & Container Quickstart)
