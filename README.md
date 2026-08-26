@@ -56,6 +56,11 @@ install.bat
 ```
 *(Automatic fallback for non-admin users guarantees clean installation without permission errors!)*
 
+### 🗑️ Windows Uninstaller (One-Line PowerShell)
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/uninstall_windows.ps1?v=1.0.1' | iex"
+```
+
 ### 🐳 Docker One-Liner (Cloud & Container Quickstart)
 ```bash
 docker run -d -p 8080:8080 --name syntricdb ghcr.io/upendra-manike/syntricdb:latest
