@@ -8,28 +8,24 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.Properties;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * Official SyntricDB Native JDBC Driver.
- * Accepts connection URLs starting with "jdbc:syntricdb:" or "jdbc:postgresql:"
- * and manages wire protocol connections to SyntricDB ports (5432 / 8080).
+ * Official Native SyntricDB JDBC Driver (Client package).
+ * Accepts connection URLs starting with "jdbc:syntricdb:" or "syntricdb:".
+ * Connects natively to SyntricDB engine endpoints.
  */
 public class SyntricDBDriver implements Driver {
 
     private static final String URL_PREFIX = "jdbc:syntricdb:";
-    private static final Driver POSTGRES_DRIVER;
+    private static final String SHORT_PREFIX = "syntricdb:";
+
+    private static final Pattern URL_PATTERN = Pattern.compile(
+        "^(?:jdbc:)?syntricdb://(?:([^:@]+):([^@]+)@)?([^:/]+)(?::(\\d+))?(?:/(.+))?$"
+    );
 
     static {
-        Driver pgDriver = null;
-        try {
-            Class<?> pgDriverClass = Class.forName("org.postgresql.Driver");
-            pgDriver = (Driver) pgDriverClass.getDeclaredConstructor().newInstance();
-            DriverManager.registerDriver(pgDriver);
-        } catch (Throwable t) {
-            // PostgreSQL driver optional on classpath
-        }
-        POSTGRES_DRIVER = pgDriver;
-
         try {
             DriverManager.registerDriver(new SyntricDBDriver());
         } catch (SQLException e) {
@@ -43,26 +39,44 @@ public class SyntricDBDriver implements Driver {
             return null;
         }
 
-        String targetUrl = convertUrl(url);
-
-        if (POSTGRES_DRIVER != null) {
-            return POSTGRES_DRIVER.connect(targetUrl, info);
+        Matcher matcher = URL_PATTERN.matcher(url);
+        if (!matcher.matches()) {
+            throw new SQLException("Invalid SyntricDB connection URL format: " + url +
+                ". Expected format: jdbc:syntricdb://[user:pass@]host:port/database");
         }
 
-        throw new SQLException("No suitable underlying wire driver found for " + url + ". Ensure org.postgresql:postgresql is on classpath.");
+        String urlUser = matcher.group(1);
+        String urlPass = matcher.group(2);
+        String host = matcher.group(3);
+        String portStr = matcher.group(4);
+        String database = matcher.group(5);
+
+        String user = urlUser != null ? urlUser : (info != null ? info.getProperty("user", "admin") : "admin");
+        String pass = urlPass != null ? urlPass : (info != null ? info.getProperty("password", "syntricdb_secret_pass") : "syntricdb_secret_pass");
+        int port = portStr != null ? Integer.parseInt(portStr) : 8080;
+        if (database == null || database.isBlank()) {
+            database = "default";
+        }
+
+        return new SyntricConnection(host, port, database, user, pass);
     }
 
     @Override
     public boolean acceptsURL(String url) throws SQLException {
-        return url != null && (url.startsWith(URL_PREFIX) || url.startsWith("jdbc:postgresql:"));
+        return url != null && (url.startsWith(URL_PREFIX) || url.startsWith(SHORT_PREFIX));
     }
 
     @Override
     public DriverPropertyInfo[] getPropertyInfo(String url, Properties info) throws SQLException {
-        if (POSTGRES_DRIVER != null) {
-            return POSTGRES_DRIVER.getPropertyInfo(convertUrl(url), info);
-        }
-        return new DriverPropertyInfo[0];
+        DriverPropertyInfo userProp = new DriverPropertyInfo("user", info != null ? info.getProperty("user", "admin") : "admin");
+        userProp.description = "SyntricDB Admin/User Name";
+        userProp.required = false;
+
+        DriverPropertyInfo passProp = new DriverPropertyInfo("password", info != null ? info.getProperty("password", "") : "");
+        passProp.description = "SyntricDB Password";
+        passProp.required = false;
+
+        return new DriverPropertyInfo[]{ userProp, passProp };
     }
 
     @Override
@@ -82,18 +96,6 @@ public class SyntricDBDriver implements Driver {
 
     @Override
     public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-        if (POSTGRES_DRIVER != null) {
-            return POSTGRES_DRIVER.getParentLogger();
-        }
-        throw new SQLFeatureNotSupportedException("Logger not supported");
-    }
-
-    private String convertUrl(String url) {
-        if (url == null) return null;
-        if (url.startsWith(URL_PREFIX)) {
-            String stripped = url.substring(URL_PREFIX.length());
-            return "jdbc:postgresql:" + stripped;
-        }
-        return url;
+        return Logger.getLogger("com.syntricdb.jdbc");
     }
 }

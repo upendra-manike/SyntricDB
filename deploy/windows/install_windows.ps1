@@ -470,6 +470,7 @@ if ($env:Path -notlike "*$InstallDir*") {
 Write-Host "==========================================================================" -ForegroundColor Cyan
 Write-Host "[SUCCESS] SyntricDB Windows Installation Complete!" -ForegroundColor Green
 Write-Host "==========================================================================" -ForegroundColor Cyan
+Write-Host "  Connection Str : jdbc:syntricdb://$AdminUser:$AdminPass@localhost:8080/default" -ForegroundColor Yellow
 Write-Host "  Start Server   : syntricdb start" -ForegroundColor Yellow
 Write-Host "  Stop Server    : syntricdb stop" -ForegroundColor Yellow
 Write-Host "  Check Status   : syntricdb status" -ForegroundColor Yellow

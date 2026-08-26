@@ -89,7 +89,7 @@ case "$1" in
         echo "🔑 Admin User    : $USER"
         echo "🌐 Web Console  : http://localhost:$PORT/"
         echo "📡 REST API     : http://localhost:$PORT/api/sql"
-        echo "🔗 Connection URI: syntricdb://$USER:*****@localhost:$PORT/default"
+        echo "🔗 Connection String: jdbc:syntricdb://$USER:*****@localhost:$PORT/default"
         ;;
     stop)
         if [ -f "$PID_FILE" ]; then
@@ -147,7 +147,7 @@ echo ""
 echo "=========================================================================="
 echo "🎉 SyntricDB Installation Complete!"
 echo "=========================================================================="
-echo "🔑 Connection String: syntricdb://$ADMIN_USER:$ADMIN_PASS@localhost:$ADMIN_PORT/default"
+echo "🔑 Connection String: jdbc:syntricdb://$ADMIN_USER:$ADMIN_PASS@localhost:$ADMIN_PORT/default"
 echo "🚀 Start Database   : syntricdb start"
 echo "💻 Launch CLI Shell : syntricdb cli"
 echo "=========================================================================="

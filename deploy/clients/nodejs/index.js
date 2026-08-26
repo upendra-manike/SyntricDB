@@ -1,15 +1,39 @@
 /**
  * Official Node.js Client SDK for SyntricDB AI-Native Unified Database Engine.
+ * Accepts connection strings format: syntricdb://username:password@host:port/database
  */
 class SyntricDBClient {
-    constructor(options = {}) {
-        if (typeof options === 'string') {
-            this.host = options.replace(/\/$/, '');
-            this.apiKey = null;
+    constructor(options = 'syntricdb://admin:syntricdb_secret_pass@localhost:8080/default') {
+        this.headers = { 'Content-Type': 'application/json' };
+        this.database = 'default';
+
+        let connStr = typeof options === 'string' ? options : (options.url || options.host || 'http://localhost:8080');
+
+        if (connStr.startsWith('syntricdb://') || connStr.startsWith('jdbc:syntricdb://')) {
+            const cleanUrl = connStr.replace(/^jdbc:/, '');
+            try {
+                const parsed = new URL(cleanUrl.replace('syntricdb://', 'http://'));
+                this.host = `${parsed.protocol}//${parsed.hostname}:${parsed.port || 8080}`;
+                if (parsed.pathname && parsed.pathname !== '/') {
+                    this.database = parsed.pathname.replace(/^\//, '');
+                }
+                if (parsed.username && parsed.password) {
+                    const authStr = `${decodeURIComponent(parsed.username)}:${decodeURIComponent(parsed.password)}`;
+                    const b64 = Buffer.from(authStr, 'utf-8').toString('base64');
+                    this.headers['Authorization'] = `Basic ${b64}`;
+                }
+            } catch (e) {
+                this.host = 'http://localhost:8080';
+            }
+        } else if (connStr.startsWith('http://') || connStr.startsWith('https://')) {
+            this.host = connStr.replace(/\/$/, '');
+            if (typeof options === 'object' && options.apiKey) {
+                this.headers['Authorization'] = `Bearer ${options.apiKey}`;
+            }
         } else {
-            this.host = (options.host || 'http://localhost:8080').replace(/\/$/, '');
-            this.apiKey = options.apiKey || null;
+            this.host = `http://${connStr}`.replace(/\/$/, '');
         }
+
         this.sqlEndpoint = `${this.host}/api/sql`;
         this.vectorEndpoint = `${this.host}/api/vector/search`;
         this.ragEndpoint = `${this.host}/api/ai/rag`;
@@ -17,11 +41,7 @@ class SyntricDBClient {
     }
 
     _getHeaders() {
-        const headers = { 'Content-Type': 'application/json' };
-        if (this.apiKey) {
-            headers['Authorization'] = `Bearer ${this.apiKey}`;
-        }
-        return headers;
+        return this.headers;
     }
 
     /**
@@ -32,7 +52,7 @@ class SyntricDBClient {
         const response = await fetch(this.sqlEndpoint, {
             method: 'POST',
             headers: this._getHeaders(),
-            body: JSON.stringify({ sql })
+            body: JSON.stringify({ sql, database: this.database })
         });
 
         if (!response.ok) {
@@ -61,7 +81,7 @@ class SyntricDBClient {
         const response = await fetch(this.vectorEndpoint, {
             method: 'POST',
             headers: this._getHeaders(),
-            body: JSON.stringify({ table, column, query: queryText, limit })
+            body: JSON.stringify({ database: this.database, table, column, query: queryText, limit })
         });
 
         if (!response.ok) {
@@ -83,7 +103,7 @@ class SyntricDBClient {
         const response = await fetch(this.ragEndpoint, {
             method: 'POST',
             headers: this._getHeaders(),
-            body: JSON.stringify({ prompt, table, column, limit })
+            body: JSON.stringify({ database: this.database, prompt, table, column, limit })
         });
 
         if (!response.ok) {

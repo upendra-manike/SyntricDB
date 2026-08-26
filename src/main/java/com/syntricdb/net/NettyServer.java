@@ -14,14 +14,6 @@ import io.netty.handler.codec.http.*;
 import org.slf4j.Logger;
 import com.syntricdb.config.SyntricConfig;
 import com.syntricdb.security.SecurityManager;
-
-import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.*;
-import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.http.*;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class NettyServer {
@@ -38,6 +30,7 @@ public class NettyServer {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel channel;
+    private Channel pgChannel;
 
     public NettyServer(int port, StorageEngine storageEngine, AIEngine aiEngine, QueryExecutor queryExecutor, ClusterState clusterState) {
         this(port, storageEngine, aiEngine, queryExecutor, clusterState, new SecurityManager(), new SyntricConfig());
@@ -75,8 +68,26 @@ public class NettyServer {
 
         channel = b.bind(port).sync().channel();
         log.info("🚀 SyntricDB Netty HTTP Engine listening on http://localhost:{}", port);
-        log.info("🐘 PostgreSQL PGWire Protocol Ready (Port 5432 Handler)");
-        log.info("⚡ Redis RESP Cache Protocol Ready (Port 6379 Handler)");
+
+        try {
+            ServerBootstrap pgB = new ServerBootstrap();
+            pgB.group(bossGroup, workerGroup)
+               .channel(NioServerSocketChannel.class)
+               .childHandler(new ChannelInitializer<SocketChannel>() {
+                   @Override
+                   protected void initChannel(SocketChannel ch) {
+                       ch.pipeline().addLast(new PGWireServerHandler(queryExecutor));
+                   }
+               })
+               .option(ChannelOption.SO_BACKLOG, 1024)
+               .childOption(ChannelOption.SO_KEEPALIVE, true)
+               .childOption(ChannelOption.TCP_NODELAY, true);
+
+            pgChannel = pgB.bind(5433).sync().channel();
+            log.info("🐘 PostgreSQL PGWire Protocol Ready (Port 5433 Handler)");
+        } catch (Exception e) {
+            log.warn("Could not bind PGWire listener on port 5433: {}", e.getMessage());
+        }
     }
 
     public Channel getChannel() {
@@ -91,6 +102,7 @@ public class NettyServer {
 
     public void stop() {
         if (channel != null) channel.close();
+        if (pgChannel != null) pgChannel.close();
         if (bossGroup != null) bossGroup.shutdownGracefully();
         if (workerGroup != null) workerGroup.shutdownGracefully();
     }

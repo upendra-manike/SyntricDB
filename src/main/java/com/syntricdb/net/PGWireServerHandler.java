@@ -25,6 +25,7 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
     private final Map<String, String> preparedStatements = new HashMap<>();
     private final Map<String, String> portals = new HashMap<>();
+    private String lastDescribedQuery = null;
 
     public PGWireServerHandler(QueryExecutor queryExecutor) {
         this.queryExecutor = queryExecutor;
@@ -76,7 +77,22 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
                     byte descType = body.readableBytes() > 0 ? body.readByte() : 0;
                     String descName = body.readableBytes() > 0 ? readString(body) : "";
                     log.debug("PGWire Describe type '{}' name '{}'", (char) descType, descName);
-                    sendNoData(ctx);
+                    String q = portals.getOrDefault(descName, preparedStatements.getOrDefault(descName, ""));
+                    if (!q.isEmpty()) {
+                        try {
+                            QueryExecutor.QueryResult res = queryExecutor.execute(q);
+                            if (res.getRows() != null && !res.getRows().isEmpty()) {
+                                sendRowDescription(ctx, res.getColumns());
+                                lastDescribedQuery = q;
+                            } else {
+                                sendNoData(ctx);
+                            }
+                        } catch (Exception e) {
+                            sendNoData(ctx);
+                        }
+                    } else {
+                        sendNoData(ctx);
+                    }
                     break;
 
                 case 'E': // Execute
@@ -204,7 +220,10 @@ public class PGWireServerHandler extends SimpleChannelInboundHandler<ByteBuf> {
         try {
             QueryExecutor.QueryResult result = queryExecutor.execute(sql);
             if (result.getRows() != null && !result.getRows().isEmpty()) {
-                sendRowDescription(ctx, result.getColumns());
+                if (lastDescribedQuery == null || !lastDescribedQuery.equals(sql)) {
+                    sendRowDescription(ctx, result.getColumns());
+                }
+                lastDescribedQuery = null;
                 for (Map<String, Object> row : result.getRows()) {
                     sendDataRow(ctx, row, result.getColumns());
                 }

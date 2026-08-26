@@ -8,6 +8,14 @@ public class AST {
 
     public interface Statement {}
 
+    public static class SetStatement implements Statement {
+        private final String expression;
+        public SetStatement(String expression) { this.expression = expression; }
+        public String getExpression() { return expression; }
+    }
+
+    public static class NoOpStatement implements Statement {}
+
     public static class CreateTableStatement implements Statement {
         private final String tableName;
         private final List<ColumnDef> columns = new ArrayList<>();

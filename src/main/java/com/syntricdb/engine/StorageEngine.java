@@ -221,6 +221,8 @@ public class StorageEngine implements AutoCloseable {
                         HNSWIndex hnsw = db.getVectorIndex(tableName, vectorCol);
                         if (hnsw != null) hnsw.remove(pkVal);
                     }
+                    LSMTree lsm = db.getLsmTrees().get(tableName);
+                    if (lsm != null) lsm.delete(pkVal);
                     cacheEngine.invalidate(db.getName() + ":" + tableName + ":" + pkVal);
                     writeOpsCount.incrementAndGet();
                     count++;

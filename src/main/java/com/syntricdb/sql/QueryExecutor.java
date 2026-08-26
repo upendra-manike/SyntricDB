@@ -64,6 +64,20 @@ public class QueryExecutor {
         AST.Statement stmt = parser.parse(sql);
         String currentDb = (dbContext != null && !dbContext.isBlank()) ? dbContext.toLowerCase() : this.activeDatabase;
 
+        if (sql != null && sql.toUpperCase().contains("TRANSACTION ISOLATION")) {
+            List<Map<String, Object>> rows = new ArrayList<>();
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("transaction_isolation", "read committed");
+            rows.add(r);
+            long elapsed = System.nanoTime() - startTime;
+            return new QueryResult(rows, null, elapsed, "read committed");
+        }
+
+        if (stmt instanceof AST.SetStatement || stmt instanceof AST.NoOpStatement) {
+            long elapsed = System.nanoTime() - startTime;
+            return new QueryResult(Collections.emptyList(), null, elapsed, "OK");
+        }
+
         if (stmt instanceof AST.CreateDatabaseStatement) {
             AST.CreateDatabaseStatement createDb = (AST.CreateDatabaseStatement) stmt;
             storageEngine.createDatabase(createDb.getDbName());

@@ -11,7 +11,7 @@ SyntricDB solves "database sprawl" by replacing complex multi-database stacks (P
 - **In-Engine AI RAG & Summarization**: Run `AI_SUMMARIZE(column)` and native RAG directly within query execution plans.
 - **HNSW Vector Indexing**: High-dimensional sub-millisecond vector similarity search with configurable beam width and distance metrics (Cosine, L2, Inner Product).
 - **LSM Storage Engine**: Log-Structured Merge-tree storage for high-throughput write IOPS (50,000+ OPS) with WAL (Write-Ahead Logging) and ACID transactions via Optimistic Concurrency Control (OCC).
-- **Spring Boot & JPA Support**: Wire-compatible with PostgreSQL JDBC driver (`org.postgresql.Driver`) and Spring Data JPA `@Entity` and `@Repository`.
+- **Spring Boot & JPA Support**: Dedicated native JDBC driver (`com.syntricdb.jdbc.SyntricDBDriver`, `jdbc:syntricdb://`) and Spring Data JPA `@Entity` and `@Repository`.
 - **Multi-Language Clients**: Official client support for Java, Python, Node.js, Go, C#, Rust, and HTTP REST.
 - **Visual Web Studio Console**: Embedded real-time telemetry dashboard, 2D vector embedding scatter plot explorer, SQL runner, and IOPS monitor.
 

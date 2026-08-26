@@ -48,6 +48,10 @@ public class SQLParser {
             return parseDelete(trimmed);
         } else if (uppercase.startsWith("PUBLISH INTO")) {
             return parseStreamPublish(trimmed);
+        } else if (uppercase.startsWith("SET ")) {
+            return new AST.SetStatement(trimmed);
+        } else if (uppercase.startsWith("BEGIN") || uppercase.startsWith("COMMIT") || uppercase.startsWith("ROLLBACK") || uppercase.startsWith("START TRANSACTION") || uppercase.startsWith("SHOW ")) {
+            return new AST.NoOpStatement();
         }
 
 

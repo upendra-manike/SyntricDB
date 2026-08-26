@@ -2,27 +2,74 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"net/url"
+	"strings"
 )
 
-const SyntricDBURL = "http://localhost:8080/api/sql"
+const SyntricDBURL = "syntricdb://admin:syntricdb_secret_pass@localhost:8080/default"
 
 type QueryPayload struct {
-	SQL string `json:"sql"`
+	SQL      string `json:"sql"`
+	Database string `json:"database"`
+}
+
+func parseConnectionURL(rawURL string) (string, string, string, string) {
+	cleanURL := strings.Replace(rawURL, "jdbc:syntricdb://", "http://", 1)
+	cleanURL = strings.Replace(cleanURL, "syntricdb://", "http://", 1)
+
+	u, err := url.Parse(cleanURL)
+	if err != nil {
+		return "http://localhost:8080/api/sql", "", "", "default"
+	}
+
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		port = "8080"
+	}
+	apiURL := fmt.Sprintf("http://%s:%s/api/sql", host, port)
+
+	user := ""
+	pass := ""
+	if u.User != nil {
+		user = u.User.Username()
+		pass, _ = u.User.Password()
+	}
+
+	db := strings.Trim(u.Path, "/")
+	if db == "" {
+		db = "default"
+	}
+
+	return apiURL, user, pass, db
 }
 
 func executeQuery(sql string) (string, error) {
-	payload := QueryPayload{SQL: sql}
+	apiURL, user, pass, database := parseConnectionURL(SyntricDBURL)
+	payload := QueryPayload{SQL: sql, Database: database}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
 	}
 
-	resp, err := http.Post(SyntricDBURL, "application/json", bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	if user != "" && pass != "" {
+		auth := base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
+		req.Header.Set("Authorization", "Basic "+auth)
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -39,9 +86,9 @@ func executeQuery(sql string) (string, error) {
 func main() {
 	fmt.Println("=================================================")
 	fmt.Println("🔷 SyntricDB Go Integration Demo")
+	fmt.Printf("🔗 Connection URL: %s\n", SyntricDBURL)
 	fmt.Println("=================================================")
 
-	// 1. Create Table
 	createSQL := `
 	CREATE TABLE go_metrics (
 		id VARCHAR PRIMARY KEY,
@@ -56,7 +103,6 @@ func main() {
 		fmt.Printf("✅ Create Table Response: %s\n", res)
 	}
 
-	// 2. Insert Record with Vector Embedding
 	insertSQL := `
 	INSERT INTO go_metrics VALUES (
 		'met_601',
@@ -71,7 +117,6 @@ func main() {
 		fmt.Printf("✅ Insert Record Response: %s\n", res)
 	}
 
-	// 3. Vector Similarity Search Query
 	searchSQL := `
 	SELECT id, metric_name, value 
 	FROM go_metrics 

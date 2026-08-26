@@ -184,7 +184,7 @@ CREATE TABLE products (
 > 💻 **Official Multi-Language Code Examples Repository**: 👉 **[https://github.com/upendra-manike/SyntricDB_Examples](https://github.com/upendra-manike/SyntricDB_Examples)**
 
 ### 🍃 Spring Boot 3 & JPA
-SyntricDB connects via standard PostgreSQL JDBC driver with Spring Data JPA entities and custom repository vector methods:
+SyntricDB connects via its native dedicated JDBC driver (`com.syntricdb.jdbc.SyntricDBDriver` using `jdbc:syntricdb://localhost:8080/default`) with Spring Data JPA entities and custom repository vector methods:
 
 ```java
 // ProductEntity.java

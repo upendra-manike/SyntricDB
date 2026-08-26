@@ -1,21 +1,40 @@
+import urllib.parse
+import base64
 import requests
 import json
 
-SYNTRICDB_URL = "http://localhost:8080/api/sql"
+SYNTRICDB_URL = "syntricdb://admin:syntricdb_secret_pass@localhost:8080/default"
+
+def parse_connection_url(url_str):
+    clean_url = url_str.replace("jdbc:syntricdb://", "http://").replace("syntricdb://", "http://")
+    parsed = urllib.parse.urlparse(clean_url)
+    host_name = parsed.hostname or "localhost"
+    port_num = parsed.port or 8080
+    api_url = f"http://{host_name}:{port_num}/api/sql"
+    
+    headers = {"Content-Type": "application/json"}
+    if parsed.username and parsed.password:
+        auth_str = f"{parsed.username}:{parsed.password}"
+        b64_auth = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+        headers["Authorization"] = f"Basic {b64_auth}"
+    
+    database = parsed.path.strip("/") if parsed.path else "default"
+    return api_url, headers, database
 
 def execute_query(sql_statement):
-    headers = {"Content-Type": "application/json"}
-    payload = {"sql": sql_statement}
+    api_url, headers, database = parse_connection_url(SYNTRICDB_URL)
+    payload = {"sql": sql_statement, "database": database}
     
-    response = requests.post(SYNTRICDB_URL, json=payload, headers=headers)
+    response = requests.post(api_url, json=payload, headers=headers)
     if response.status_code == 200:
         return response.json()
     else:
-        raise Exception(f"Query execution failed: {response.status_code} - {response.text}")
+        raise Exception(f"Query execution failed ({response.status_code}): {response.text}")
 
 def main():
     print("=================================================")
     print("🐍 SyntricDB Python SDK & REST Integration Demo")
+    print(f"🔗 Connection URL: {SYNTRICDB_URL}")
     print("=================================================")
 
     # 1. Create Table
@@ -47,7 +66,7 @@ def main():
     );
     """
     res = execute_query(insert_sql)
-    print(f"✅ Inserted Developer Record: {res.get('status', 'OK')}")
+    print(f"✅ Inserted Developer Record: {res.get('message', 'OK')}")
 
     # 3. Hybrid SQL + Vector Search
     vector_sql = """
@@ -60,12 +79,6 @@ def main():
     search_res = execute_query(vector_sql)
     print("\n🔍 SyntricDB Hybrid Vector Search Results:")
     print(json.dumps(search_res, indent=2))
-
-    # 4. Native In-Engine RAG Query
-    rag_sql = "SELECT AI_RAG('Who is our lead engineer for LLM fine-tuning?');"
-    rag_res = execute_query(rag_sql)
-    print("\n🤖 SyntricDB Native AI RAG Response:")
-    print(json.dumps(rag_res, indent=2))
 
     print("=================================================")
 

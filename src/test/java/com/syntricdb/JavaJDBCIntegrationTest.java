@@ -1,21 +1,29 @@
 package com.syntricdb;
 
 import com.syntricdb.ai.AIEngine;
+import com.syntricdb.config.SyntricConfig;
 import com.syntricdb.engine.StorageEngine;
 import com.syntricdb.jdbc.SyntricDBDriver;
+import com.syntricdb.net.NettyServer;
 import com.syntricdb.net.PGWireServerHandler;
+import com.syntricdb.security.SecurityManager;
 import com.syntricdb.sql.QueryExecutor;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,23 +33,62 @@ public class JavaJDBCIntegrationTest {
     Path tempDir;
 
     private QueryExecutor queryExecutor;
+    private NettyServer nettyServer;
+    private StorageEngine storageEngine;
 
     @BeforeEach
     public void setUp() throws Exception {
-        StorageEngine storageEngine = new StorageEngine(tempDir);
+        storageEngine = new StorageEngine(tempDir);
         AIEngine aiEngine = new AIEngine(128);
         queryExecutor = new QueryExecutor(storageEngine, aiEngine);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        if (nettyServer != null) {
+            nettyServer.stop();
+        }
     }
 
     @Test
     public void testSyntricDBDriverRegistrationAndAcceptance() throws Exception {
         Driver driver = new SyntricDBDriver();
-        assertTrue(driver.acceptsURL("jdbc:syntricdb://localhost:5432/default"));
-        assertTrue(driver.acceptsURL("jdbc:postgresql://localhost:5432/default"));
+        assertTrue(driver.acceptsURL("jdbc:syntricdb://localhost:8080/default"));
+        assertTrue(driver.acceptsURL("syntricdb://admin:secret@localhost:8080/default"));
+        assertFalse(driver.acceptsURL("jdbc:postgresql://localhost:5432/default"));
         assertFalse(driver.acceptsURL("jdbc:mysql://localhost:3306/default"));
 
-        Driver registered = DriverManager.getDriver("jdbc:syntricdb://localhost:5432/default");
+        Driver registered = DriverManager.getDriver("jdbc:syntricdb://localhost:8080/default");
         assertNotNull(registered);
+    }
+
+    @Test
+    public void testNativeSyntricDBConnectionAndQueryExecution() throws Exception {
+        SyntricConfig config = new SyntricConfig();
+        SecurityManager securityManager = new SecurityManager("admin", "syntricdb_secret_pass");
+        nettyServer = new NettyServer(8899, storageEngine, new AIEngine(128), queryExecutor, new com.syntricdb.cluster.ClusterState(), securityManager, config);
+        nettyServer.start();
+
+        queryExecutor.execute("CREATE TABLE products (id VARCHAR PRIMARY KEY, title VARCHAR, price DOUBLE)");
+        queryExecutor.execute("INSERT INTO products VALUES ('p101', 'AI Accelerator', 299.99)");
+
+        // 1. Connection with valid credentials
+        Connection conn = DriverManager.getConnection("jdbc:syntricdb://admin:syntricdb_secret_pass@localhost:8899/default");
+        assertNotNull(conn);
+        assertFalse(conn.isClosed());
+
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery("SELECT * FROM products");
+        assertTrue(rs.next());
+        assertEquals("p101", rs.getString("id"));
+        assertEquals("AI Accelerator", rs.getString("title"));
+        assertEquals(299.99, rs.getDouble("price"), 0.01);
+        conn.close();
+
+        // 2. Connection with invalid credentials throws SQLException
+        assertThrows(SQLException.class, () -> {
+            DriverManager.getConnection("jdbc:syntricdb://admin:wrong_pass@localhost:8899/default");
+        });
     }
 
     @Test
