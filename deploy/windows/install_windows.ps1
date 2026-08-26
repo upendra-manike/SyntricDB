@@ -176,94 +176,124 @@ if (-not (Test-ValidJar $targetJar)) {
     exit 1
 }
 
-# 6. Create syntricdb.bat CMD & PowerShell Launcher with Fixed Quoting Syntax
-$batContent = @'
-@echo off
-setlocal enableextensions
-SET "INSTALL_DIR=%~dp0"
-IF "%INSTALL_DIR:~-1%"=="\" SET "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
-SET "JAR_PATH=%INSTALL_DIR%\syntricdb-engine.jar"
-
-IF "%APPDATA%"=="" (
-    SET "CONF_DIR=%USERPROFILE%\.syntricdb"
-) ELSE (
-    SET "CONF_DIR=%APPDATA%\SyntricDB"
+# 6. Create syntricdb.ps1 Native PowerShell Script & syntricdb.bat CMD Wrapper
+$ps1Content = @'
+param(
+    [string]$Command = "usage",
+    [Parameter(ValueFromRemainingArguments=$true)]
+    [string[]]$RestArgs
 )
 
-IF NOT EXIST "%CONF_DIR%" mkdir "%CONF_DIR%"
-IF NOT EXIST "%CONF_DIR%\data" mkdir "%CONF_DIR%\data"
-IF NOT EXIST "%CONF_DIR%\wal" mkdir "%CONF_DIR%\wal"
-IF NOT EXIST "%CONF_DIR%\snapshots" mkdir "%CONF_DIR%\snapshots"
+$InstallDir = $PSScriptRoot
+if (-not $InstallDir) { $InstallDir = (Get-Location).Path }
+$JarPath = Join-Path $InstallDir "syntricdb-engine.jar"
 
-SET "LOG_FILE=%CONF_DIR%\syntricdb.log"
+$ConfigDir = if ($env:APPDATA) { Join-Path $env:APPDATA "SyntricDB" } else { Join-Path $env:USERPROFILE ".syntricdb" }
+if (-not (Test-Path $ConfigDir)) { New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null }
+if (-not (Test-Path "$ConfigDir\data")) { New-Item -ItemType Directory -Force -Path "$ConfigDir\data" | Out-Null }
+$LogFile = Join-Path $ConfigDir "syntricdb.log"
 
-IF "%1"=="start" GOTO start
-IF "%1"=="server" GOTO start
-IF "%1"=="stop" GOTO stop
-IF "%1"=="status" GOTO status
-IF "%1"=="cli" GOTO cli
-IF "%1"=="logs" GOTO logs
-GOTO usage
+switch ($Command.ToLower()) {
+    "start" {
+        $java = Get-Command java -ErrorAction SilentlyContinue
+        if (-not $java) {
+            Write-Host "❌ Error: Java runtime is not installed or not in PATH!" -ForegroundColor Red
+            Write-Host "Please install Java 21: winget install EclipseAdoptium.Temurin.21.JDK" -ForegroundColor Yellow
+            exit 1
+        }
+        if (-not (Test-Path $JarPath)) {
+            Write-Host "❌ Error: SyntricDB Engine JAR not found at $JarPath" -ForegroundColor Red
+            exit 1
+        }
 
-:start
-WHERE java >nul 2>nul
-IF %ERRORLEVEL% NEQ 0 (
-    echo ❌ Error: Java runtime is not installed or not in PATH!
-    echo Please install Java 21: winget install EclipseAdoptium.Temurin.21.JDK
-    EXIT /B 1
-)
-IF NOT EXIST "%JAR_PATH%" (
-    echo ❌ Error: SyntricDB Engine JAR not found at %JAR_PATH%
-    EXIT /B 1
-)
-echo Starting SyntricDB AI-Native Engine on Port 8080...
-start "SyntricDB Server" /B java -Xms512m -Xmx4g -jar "%JAR_PATH%" > "%LOG_FILE%" 2>&1
-echo SyntricDB Server launched in background.
-echo Log File     : %LOG_FILE%
-echo Web Dashboard: http://localhost:8080/
-echo REST API     : http://localhost:8080/api/sql
-EXIT /B 0
+        $existing = Get-WmiObject Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }
+        if ($existing) {
+            Write-Host "⚡ SyntricDB Server is already running (PID: $($existing.ProcessId))" -ForegroundColor Green
+            Write-Host "🌐 Web Dashboard: http://localhost:8080/" -ForegroundColor Cyan
+            exit 0
+        }
 
-:stop
-echo Stopping SyntricDB Server...
-powershell -Command "Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>nul
-echo SyntricDB Server stopped.
-EXIT /B 0
+        Write-Host "🚀 Starting SyntricDB AI-Native Engine on Port 8080..." -ForegroundColor Yellow
+        Start-Process -FilePath "java.exe" -ArgumentList "-Xms512m", "-Xmx4g", "-jar", "`"$JarPath`"" -RedirectStandardOutput $LogFile -RedirectStandardError $LogFile -WindowStyle Hidden
+        Start-Sleep -Seconds 2
 
-:status
-powershell -Command "$p = Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }; if ($p) { Write-Host 'SyntricDB Server is running (PID: ' $p.ProcessId ')' -ForegroundColor Green; Write-Host 'Web Console: http://localhost:8080/' -ForegroundColor Cyan } else { Write-Host 'SyntricDB Server is stopped.' -ForegroundColor Red }"
-EXIT /B 0
-
-:cli
-WHERE java >nul 2>nul
-IF %ERRORLEVEL% NEQ 0 (
-    echo ❌ Error: Java is not installed or not in PATH!
-    EXIT /B 1
-)
-shift
-java -cp "%JAR_PATH%" com.syntricdb.cli.SyntricCLI %1 %2 %3 %4 %5 %6 %7 %8 %9
-EXIT /B 0
-
-:logs
-powershell -Command "if (Test-Path '%LOG_FILE%') { Get-Content '%LOG_FILE%' -Tail 50 } else { Write-Host 'No log file found at %LOG_FILE%' -ForegroundColor Yellow }"
-EXIT /B 0
-
-:usage
-echo ==========================================================
-echo SyntricDB: Next-Generation AI-Native Unified Database
-echo ==========================================================
-echo Usage: syntricdb {start|stop|status|cli|logs}
-echo   syntricdb start   : Launch background server daemon
-echo   syntricdb stop    : Shutdown background server daemon
-echo   syntricdb status  : Check server status
-echo   syntricdb cli     : Launch interactive SQL & Vector shell
-echo   syntricdb logs    : Tail server stdout/stderr logs
-echo ==========================================================
-EXIT /B 0
+        $proc = Get-WmiObject Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }
+        if ($proc) {
+            Write-Host "✅ SyntricDB Server launched in background (PID: $($proc.ProcessId))." -ForegroundColor Green
+            Write-Host "📜 Log File     : $LogFile" -ForegroundColor Gray
+            Write-Host "🌐 Web Dashboard: http://localhost:8080/" -ForegroundColor Cyan
+            Write-Host "📡 REST API     : http://localhost:8080/api/sql" -ForegroundColor Cyan
+        } else {
+            Write-Host "⚠️ SyntricDB Server launch initiated. Check logs at: $LogFile" -ForegroundColor Yellow
+        }
+    }
+    "server" {
+        $java = Get-Command java -ErrorAction SilentlyContinue
+        if (-not $java) {
+            Write-Host "❌ Error: Java runtime is not installed or not in PATH!" -ForegroundColor Red
+            exit 1
+        }
+        & java -Xms512m -Xmx4g -jar "$JarPath"
+    }
+    "stop" {
+        Write-Host "🛑 Stopping SyntricDB Server..." -ForegroundColor Yellow
+        $procs = Get-WmiObject Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }
+        if ($procs) {
+            foreach ($p in $procs) {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+            Write-Host "✅ SyntricDB Server stopped." -ForegroundColor Green
+        } else {
+            Write-Host "⚠️ SyntricDB Server is not currently running." -ForegroundColor Yellow
+        }
+    }
+    "status" {
+        $proc = Get-WmiObject Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*syntricdb-engine.jar*' }
+        if ($proc) {
+            Write-Host "🟢 SyntricDB Server is running (PID: $($proc.ProcessId))" -ForegroundColor Green
+            Write-Host "🌐 Web Console: http://localhost:8080/" -ForegroundColor Cyan
+        } else {
+            Write-Host "🔴 SyntricDB Server is stopped." -ForegroundColor Red
+        }
+    }
+    "cli" {
+        $java = Get-Command java -ErrorAction SilentlyContinue
+        if (-not $java) {
+            Write-Host "❌ Error: Java runtime is not installed or not in PATH!" -ForegroundColor Red
+            exit 1
+        }
+        & java -cp "$JarPath" com.syntricdb.cli.SyntricCLI $RestArgs
+    }
+    "logs" {
+        if (Test-Path $LogFile) {
+            Get-Content -Path $LogFile -Tail 50
+        } else {
+            Write-Host "No log file found at $LogFile" -ForegroundColor Yellow
+        }
+    }
+    default {
+        Write-Host "==========================================================" -ForegroundColor Cyan
+        Write-Host "⚡ SyntricDB: Next-Generation AI-Native Unified Database ⚡" -ForegroundColor Cyan
+        Write-Host "==========================================================" -ForegroundColor Cyan
+        Write-Host "Usage: syntricdb {start|stop|status|cli|logs}"
+        Write-Host "  syntricdb start   : Launch background server daemon"
+        Write-Host "  syntricdb stop    : Shutdown background server daemon"
+        Write-Host "  syntricdb status  : Check server status"
+        Write-Host "  syntricdb cli     : Launch interactive SQL & Vector shell"
+        Write-Host "  syntricdb logs    : Tail server stdout/stderr logs"
+        Write-Host "==========================================================" -ForegroundColor Cyan
+    }
+}
 '@
 
-Set-Content -Path "$InstallDir\syntricdb.bat" -Value $batContent -Encoding UTF8
-Set-Content -Path "$InstallDir\syntricdb.cmd" -Value $batContent -Encoding UTF8
+$batWrapperContent = @'
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0syntricdb.ps1" %*
+'@
+
+Set-Content -Path "$InstallDir\syntricdb.ps1" -Value $ps1Content -Encoding UTF8
+Set-Content -Path "$InstallDir\syntricdb.bat" -Value $batWrapperContent -Encoding UTF8
+Set-Content -Path "$InstallDir\syntricdb.cmd" -Value $batWrapperContent -Encoding UTF8
 
 # 7. Update PATH Environment Variable (Registry + Active Process Session)
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
