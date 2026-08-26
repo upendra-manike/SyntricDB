@@ -1,13 +1,13 @@
 # ==============================================================================
 # SyntricDB Windows Native PowerShell Installer (Windows 10/11 & Server)
 # Usage (Online One-Liner):
-# powershell -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1 | iex"
+# powershell -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1?v=1.0.1' | iex"
 # Usage (Local File):
 # powershell -ExecutionPolicy Bypass -File install_windows.ps1
 # ==============================================================================
 
 Write-Host "==========================================================================" -ForegroundColor Cyan
-Write-Host "⚡ SyntricDB Windows Native Database Installer ⚡" -ForegroundColor Cyan
+Write-Host "⚡ SyntricDB Windows Native Database Installer v1.0.1 ⚡" -ForegroundColor Cyan
 Write-Host "==========================================================================" -ForegroundColor Cyan
 
 # Function to check if a JAR file is valid and non-corrupt (> 1MB & PK ZIP header)
@@ -48,6 +48,11 @@ New-Item -ItemType Directory -Force -Path "$ConfigDir\wal" | Out-Null
 New-Item -ItemType Directory -Force -Path "$ConfigDir\snapshots" | Out-Null
 New-Item -ItemType Directory -Force -Path $UserHomeConfigDir | Out-Null
 New-Item -ItemType Directory -Force -Path "$UserHomeConfigDir\data" | Out-Null
+
+# Clean old stale launcher files if present
+Remove-Item "$InstallDir\syntricdb.bat" -Force -ErrorAction SilentlyContinue
+Remove-Item "$InstallDir\syntricdb.cmd" -Force -ErrorAction SilentlyContinue
+Remove-Item "$InstallDir\syntricdb.ps1" -Force -ErrorAction SilentlyContinue
 
 # 3. Verify / Install Java 21
 try {
@@ -134,19 +139,26 @@ if (-not $jarFound) {
     }
 }
 
-# Download directly from raw GitHub if not found locally (for iwr | iex online execution)
+# Download directly from raw GitHub with cache buster if not found locally
 if (-not $jarFound) {
     Write-Host "🌐 Engine JAR not found locally. Downloading production JAR from GitHub repository..." -ForegroundColor Yellow
+    $cacheBuster = Get-Date -Format "yyyyMMddHHmmss"
     $downloadUrls = @(
-        "https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/syntricdb-engine.jar",
-        "https://github.com/upendra-manike/SyntricDB/raw/main/deploy/windows/syntricdb-engine.jar",
+        "https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/syntricdb-engine.jar?v=$cacheBuster",
+        "https://github.com/upendra-manike/SyntricDB/raw/main/deploy/windows/syntricdb-engine.jar?v=$cacheBuster",
         "https://github.com/upendra-manike/SyntricDB/releases/download/v1.0.0/syntricdb-engine.jar"
     )
+
+    $noCacheHeaders = @{
+        "Cache-Control" = "no-cache, no-store, must-revalidate"
+        "Pragma"        = "no-cache"
+        "Expires"       = "0"
+    }
 
     foreach ($url in $downloadUrls) {
         try {
             Write-Host "   Downloading: $url" -ForegroundColor Gray
-            Invoke-WebRequest -Uri $url -OutFile $targetJar -UseBasicParsing -ErrorAction Stop
+            Invoke-WebRequest -Uri $url -OutFile $targetJar -Headers $noCacheHeaders -UseBasicParsing -ErrorAction Stop
             if (Test-ValidJar $targetJar) {
                 Write-Host "✅ Engine JAR downloaded and validated successfully!" -ForegroundColor Green
                 $jarFound = $true

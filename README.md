@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deplo
 ### 🪟 Windows 10 / 11 & Windows Server (PowerShell or CMD)
 **One-Line Online PowerShell Install** (Normal User or Administrator):
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iwr -useb https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1 | iex"
+powershell -ExecutionPolicy Bypass -Command "iwr -useb 'https://raw.githubusercontent.com/upendra-manike/SyntricDB/main/deploy/windows/install_windows.ps1?v=1.0.1' | iex"
 ```
 Or run locally via PowerShell or double-click `install.bat`:
 ```cmd
