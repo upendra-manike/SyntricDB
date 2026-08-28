@@ -40,6 +40,8 @@ public class SQLParser {
             return parseCreateTable(trimmed);
         } else if (uppercase.startsWith("INSERT INTO")) {
             return parseInsert(trimmed);
+        } else if (uppercase.startsWith("SELECT AI_RAG") || uppercase.startsWith("SELECT  AI_RAG")) {
+            return parseSelectAiRag(trimmed);
         } else if (uppercase.startsWith("SELECT")) {
             return parseSelect(trimmed);
         } else if (uppercase.startsWith("UPDATE")) {
@@ -56,6 +58,18 @@ public class SQLParser {
 
 
         throw new IllegalArgumentException("Unsupported SQL statement syntax: " + trimmed);
+    }
+
+    private AST.SelectStatement parseSelectAiRag(String sql) {
+        Pattern ragP = Pattern.compile("SELECT\\s+AI_RAG\\s*\\((?:['\"](.*?)['\"]|(\\?))\\)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher ragM = ragP.matcher(sql);
+        String prompt = "AI Query Prompt";
+        if (ragM.find()) {
+            if (ragM.group(1) != null) prompt = ragM.group(1);
+        }
+        AST.SelectStatement stmt = new AST.SelectStatement(null);
+        stmt.getSelectItems().add(new AST.SelectItem(prompt, "ai_rag", "AI_RAG", new String[]{prompt}));
+        return stmt;
     }
 
     private AST.CreateDatabaseStatement parseCreateDatabase(String sql) {
@@ -95,8 +109,8 @@ public class SQLParser {
     }
 
     private AST.CreateTableStatement parseCreateTable(String sql) {
-        // Syntax: CREATE TABLE [db.]users (id VARCHAR PRIMARY KEY, age INT, bio VARCHAR, embedding FLOAT_VECTOR(128))
-        Pattern p = Pattern.compile("CREATE\\s+TABLE\\s+([a-zA-Z0-9_\\.]+)\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        // Syntax: CREATE TABLE [IF NOT EXISTS] [db.]users (id VARCHAR PRIMARY KEY, age INT, bio VARCHAR, embedding FLOAT_VECTOR(128))
+        Pattern p = Pattern.compile("CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?([a-zA-Z0-9_\\.]+)\\s*\\((.*)\\)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher m = p.matcher(sql);
         if (!m.find()) {
             throw new IllegalArgumentException("Invalid CREATE TABLE syntax.");
@@ -145,14 +159,16 @@ public class SQLParser {
     }
 
     private AST.InsertStatement parseInsert(String sql) throws Exception {
-        Pattern p = Pattern.compile("INSERT\\s+INTO\\s+([a-zA-Z0-9_\\.]+)\\s+VALUES\\s*(.*)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Pattern p = Pattern.compile("INSERT\\s+INTO\\s+([a-zA-Z0-9_\\.]+)(?:\\s*\\((.*?)\\))?\\s+VALUES\\s*(.*)", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher m = p.matcher(sql);
         if (!m.find()) {
             throw new IllegalArgumentException("Invalid INSERT INTO syntax.");
         }
 
-        String tableName = m.group(1).trim();
-        String valuesBody = m.group(2).trim();
+        String rawTable = m.group(1).trim();
+        String tableName = rawTable.split("\\s+")[0].trim();
+        String columnsStr = m.group(2) != null ? m.group(2).trim() : null;
+        String valuesBody = m.group(3).trim();
 
         Tuple tuple = new Tuple();
 
@@ -170,14 +186,26 @@ public class SQLParser {
             if (valuesBody.startsWith("(") && valuesBody.endsWith(")")) {
                 valuesBody = valuesBody.substring(1, valuesBody.length() - 1);
             }
+            List<String> colNames = new ArrayList<>();
+            if (columnsStr != null && !columnsStr.isBlank()) {
+                for (String c : columnsStr.split(",")) {
+                    String col = c.trim();
+                    if (col.contains(".")) {
+                        col = col.substring(col.lastIndexOf('.') + 1);
+                    }
+                    colNames.add(col);
+                }
+            }
+
             List<String> tokens = parseCSVValues(valuesBody);
             for (int i = 0; i < tokens.size(); i++) {
                 String valStr = tokens.get(i).trim();
+                String colName = (i < colNames.size()) ? colNames.get(i) : "val_" + i;
                 if (valStr.toUpperCase().startsWith("AI_EMBED(")) {
                     String text = extractAiEmbedArg(valStr);
-                    tuple.set("val_" + i, aiEngine.aiEmbed(text));
+                    tuple.set(colName, aiEngine.aiEmbed(text));
                 } else {
-                    tuple.set("val_" + i, unquote(valStr));
+                    tuple.set(colName, unquote(valStr));
                 }
             }
         }
@@ -186,16 +214,20 @@ public class SQLParser {
     }
 
     private AST.SelectStatement parseSelect(String sql) {
-        Pattern p = Pattern.compile("SELECT\\s+(.*?)\\s+FROM\\s+([a-zA-Z0-9_\\.]+)(?:\\s+WHERE\\s+(.*?))?(?:\\s+ORDER\\s+BY\\s+([a-zA-Z0-9_]+)(?:\\s+(ASC|DESC))?)?(?:\\s+LIMIT\\s+(\\d+))?$", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Pattern p = Pattern.compile("SELECT\\s+(.*?)\\s+FROM\\s+([a-zA-Z0-9_\\.\\s]+?)(?:\\s+WHERE\\s+(.*?))?(?:\\s+ORDER\\s+BY\\s+([a-zA-Z0-9_\\.]+)(?:\\s+(ASC|DESC))?)?(?:\\s+LIMIT\\s+(\\d+))?$", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
         Matcher m = p.matcher(sql);
         if (!m.find()) {
             throw new IllegalArgumentException("Invalid SELECT query syntax.");
         }
 
         String selectBody = m.group(1).trim();
-        String tableName = m.group(2).trim();
+        String rawTable = m.group(2).trim();
+        String tableName = rawTable.split("\\s+")[0].trim();
         String whereBody = m.group(3) != null ? m.group(3).trim() : null;
         String orderByCol = m.group(4) != null ? m.group(4).trim() : null;
+        if (orderByCol != null && orderByCol.contains(".")) {
+            orderByCol = orderByCol.substring(orderByCol.lastIndexOf('.') + 1);
+        }
         String orderDir = m.group(5) != null ? m.group(5).trim() : "ASC";
         String limitStr = m.group(6) != null ? m.group(6).trim() : null;
 
@@ -205,6 +237,9 @@ public class SQLParser {
         String[] items = selectBody.split(",");
         for (String item : items) {
             item = item.trim();
+            if (item.contains(".")) {
+                item = item.substring(item.lastIndexOf('.') + 1);
+            }
             if (item.toUpperCase().startsWith("AI_SUMMARIZE(")) {
                 String arg = extractFunctionArg(item);
                 stmt.getSelectItems().add(new AST.SelectItem(arg, "ai_summary", "AI_SUMMARIZE", new String[]{arg}));
@@ -223,10 +258,11 @@ public class SQLParser {
                 cond = cond.trim();
                 // Vector similarity check: e.g., embedding SIMILAR TO 'Java Engineer'
                 if (cond.toUpperCase().contains("SIMILAR TO")) {
-                    Pattern simP = Pattern.compile("([a-zA-Z0-9_]+)\\s+SIMILAR\\s+TO\\s+['\"](.*?)['\"](?:\\s+TOP\\s+(\\d+))?", Pattern.CASE_INSENSITIVE);
+                    Pattern simP = Pattern.compile("([a-zA-Z0-9_\\.]+)\\s+SIMILAR\\s+TO\\s+['\"](.*?)['\"](?:\\s+TOP\\s+(\\d+))?", Pattern.CASE_INSENSITIVE);
                     Matcher simM = simP.matcher(cond);
                     if (simM.find()) {
-                        String vecCol = simM.group(1);
+                        String rawVecCol = simM.group(1);
+                        String vecCol = rawVecCol.contains(".") ? rawVecCol.substring(rawVecCol.lastIndexOf('.') + 1) : rawVecCol;
                         String queryText = simM.group(2);
                         int k = simM.group(3) != null ? Integer.parseInt(simM.group(3)) : 10;
                         stmt.setVectorSearchCondition(new AST.VectorSearchCondition(vecCol, queryText, aiEngine.aiEmbed(queryText), k, 1.0));
@@ -235,14 +271,17 @@ public class SQLParser {
                 // Full text match: e.g., MATCH(bio, 'engineer')
                 else if (cond.toUpperCase().startsWith("MATCH(")) {
                     String[] args = extractFunctionArgs(cond);
-                    stmt.setFullTextCondition(new AST.FullTextCondition(args[0], unquote(args[1])));
+                    String rawCol = args[0];
+                    String col = rawCol.contains(".") ? rawCol.substring(rawCol.lastIndexOf('.') + 1) : rawCol;
+                    stmt.setFullTextCondition(new AST.FullTextCondition(col, unquote(args[1])));
                 }
-                // Scalar conditions: e.g., city='Hyderabad' or age>30
+                // Scalar conditions: e.g., city='Hyderabad' or age>30 or p1_0.id='test_prod_1'
                 else {
-                    Pattern scalarP = Pattern.compile("([a-zA-Z0-9_]+)\\s*(=|!=|>|<|>=|<=)\\s*(.*)");
+                    Pattern scalarP = Pattern.compile("([a-zA-Z0-9_\\.]+)\\s*(=|!=|>|<|>=|<=)\\s*(.*)");
                     Matcher scalarM = scalarP.matcher(cond);
                     if (scalarM.find()) {
-                        String col = scalarM.group(1);
+                        String rawCol = scalarM.group(1);
+                        String col = rawCol.contains(".") ? rawCol.substring(rawCol.lastIndexOf('.') + 1) : rawCol;
                         String op = scalarM.group(2);
                         String val = unquote(scalarM.group(3));
                         stmt.getWhereConditions().add(new AST.Condition(col, op, parseLiteral(val)));

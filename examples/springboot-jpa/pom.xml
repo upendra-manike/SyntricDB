@@ -41,6 +41,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- SyntricDB Native JDBC Driver -->
+        <dependency>
+            <groupId>io.github.upendra-manike</groupId>
+            <artifactId>syntricdb-java-client</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
         <!-- Spring Boot Starter Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -17,6 +17,9 @@ public class QueryOptimizer {
     public ExecutionPlan optimize(String dbName, AST.SelectStatement stmt) {
         String tableName = stmt.getTableName();
         String targetDb = dbName;
+        if (tableName == null) {
+            return new ExecutionPlan(ExecutionPlan.ExecutionStrategy.FULL_TABLE_SCAN, "Function Execution", 0.0, stmt);
+        }
         if (tableName.contains(".")) {
             String[] parts = tableName.split("\\.", 2);
             targetDb = parts[0];

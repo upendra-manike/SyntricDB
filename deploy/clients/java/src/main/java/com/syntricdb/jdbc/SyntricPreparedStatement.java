@@ -271,37 +271,7 @@ public class SyntricPreparedStatement extends SyntricStatement implements Prepar
     public void setCharacterStream(int parameterIndex, Reader reader, long length) throws SQLException {}
 
     @Override
-    public void setAsciiStream(String columnLabel, InputStream x, long length) throws SQLException {}
-
-    @Override
-    public void setBinaryStream(String columnLabel, InputStream x, long length) throws SQLException {}
-
-    @Override
-    public void setCharacterStream(String columnLabel, Reader reader, long length) throws SQLException {}
-
-    @Override
-    public void setBlob(int parameterIndex, InputStream inputStream, long length) throws SQLException {}
-
-    @Override
-    public void setBlob(String columnLabel, InputStream inputStream, long length) throws SQLException {}
-
-    @Override
-    public void setClob(int parameterIndex, Reader reader, long length) throws SQLException {}
-
-    @Override
-    public void setClob(String columnLabel, Reader reader, long length) throws SQLException {}
-
-    @Override
-    public void setNClob(int parameterIndex, Reader reader, long length) throws SQLException {}
-
-    @Override
-    public void setNClob(String columnLabel, Reader reader, long length) throws SQLException {}
-
-    @Override
     public void setNCharacterStream(int parameterIndex, Reader x) throws SQLException {}
-
-    @Override
-    public void setNCharacterStream(String columnLabel, Reader reader) throws SQLException {}
 
     @Override
     public void setAsciiStream(int parameterIndex, InputStream x) throws SQLException {}
@@ -313,29 +283,11 @@ public class SyntricPreparedStatement extends SyntricStatement implements Prepar
     public void setCharacterStream(int parameterIndex, Reader x) throws SQLException {}
 
     @Override
-    public void setAsciiStream(String columnLabel, InputStream x) throws SQLException {}
-
-    @Override
-    public void setBinaryStream(String columnLabel, InputStream x) throws SQLException {}
-
-    @Override
-    public void setCharacterStream(String columnLabel, Reader reader) throws SQLException {}
-
-    @Override
     public void setBlob(int parameterIndex, InputStream inputStream) throws SQLException {}
-
-    @Override
-    public void setBlob(String columnLabel, InputStream inputStream) throws SQLException {}
 
     @Override
     public void setClob(int parameterIndex, Reader reader) throws SQLException {}
 
     @Override
-    public void setClob(String columnLabel, Reader reader) throws SQLException {}
-
-    @Override
     public void setNClob(int parameterIndex, Reader reader) throws SQLException {}
-
-    @Override
-    public void setNClob(String columnLabel, Reader reader) throws SQLException {}
 }

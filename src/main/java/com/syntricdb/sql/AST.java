@@ -57,7 +57,7 @@ public class AST {
         private int limit = -1;
 
         public SelectStatement(String tableName) {
-            this.tableName = tableName.toLowerCase();
+            this.tableName = tableName != null ? tableName.toLowerCase() : null;
         }
 
         public String getTableName() { return tableName; }

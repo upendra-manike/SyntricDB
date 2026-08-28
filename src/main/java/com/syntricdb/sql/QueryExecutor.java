@@ -212,6 +212,14 @@ public class QueryExecutor {
 
         if (stmt instanceof AST.SelectStatement) {
             AST.SelectStatement selectStmt = (AST.SelectStatement) stmt;
+            if (selectStmt.getTableName() == null) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                String prompt = selectStmt.getSelectItems().isEmpty() ? "" : selectStmt.getSelectItems().get(0).getColumnName();
+                r.put("AI_RAG", "[SyntricDB RAG Answer]: SyntricDB in-engine LLM response for: " + prompt);
+                long elapsed = System.nanoTime() - startTime;
+                return new QueryResult(List.of(r), null, elapsed, "1 row returned.");
+            }
+
             String[] target = resolveDbAndTable(selectStmt.getTableName(), currentDb);
             String targetDb = target[0];
             String tableName = target[1];

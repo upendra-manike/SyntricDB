@@ -207,17 +207,23 @@ public class HTTPHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
                 String targetDb = reqJson.containsKey("database") ? reqJson.get("database").toString() : queryExecutor.getActiveDatabase();
                 QueryExecutor.QueryResult res = queryExecutor.execute(sql, targetDb);
 
+                boolean isSelect = sql.trim().toUpperCase().startsWith("SELECT");
+                int affected = isSelect ? 0 : 1;
+
                 responseMap.put("success", true);
                 responseMap.put("activeDatabase", queryExecutor.getActiveDatabase());
                 responseMap.put("message", res.getMessage());
                 responseMap.put("executionTimeMs", res.getExecutionTimeMs());
-                responseMap.put("rowCount", res.getRows().size());
+                responseMap.put("affectedRows", affected);
+                responseMap.put("rowCount", isSelect ? res.getRows().size() : affected);
                 if (res.getExecutionPlan() != null) {
                     responseMap.put("planStrategy", res.getExecutionPlan().getStrategy().name());
                     responseMap.put("planDescription", res.getExecutionPlan().getDescription());
                     responseMap.put("estimatedCost", res.getExecutionPlan().getEstimatedCost());
                 }
-                responseMap.put("data", res.getRows());
+                if (isSelect) {
+                    responseMap.put("data", res.getRows());
+                }
 
             } else if ("/api/vector/search".equals(uri) && req.method() == HttpMethod.POST) {
                 Map<String, Object> reqJson = jsonMapper.readValue(body, Map.class);
